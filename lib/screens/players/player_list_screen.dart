@@ -42,13 +42,23 @@ class _PlayerListScreenState extends State<PlayerListScreen> {
     return Scaffold(
       backgroundColor: AppColors.gray,
       appBar: AppBar(
+        elevation: 0,
+        centerTitle: false,
+        titleSpacing: -4,
+        leadingWidth: 34,
+        leading: IconButton(
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(),
+          onPressed: () => Navigator.maybePop(context),
+          icon:
+              const Icon(Icons.arrow_back_ios_new, size: 20, color: _searchInk),
+        ),
         title: const Text(
           '선수/동호인 관리',
           style: TextStyle(
-            fontSize: 21,
-            fontWeight: FontWeight.w600,
-            color: Color(0xFF0D1B3E),
-            letterSpacing: -0.4,
+            fontSize: 19,
+            fontWeight: FontWeight.w700,
+            color: _searchInk,
           ),
         ),
         actions: [
@@ -102,8 +112,8 @@ class _PlayerListScreenState extends State<PlayerListScreen> {
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(11),
-                  borderSide: const BorderSide(
-                      color: _searchAccent, width: 1.4),
+                  borderSide:
+                      const BorderSide(color: _searchAccent, width: 1.4),
                 ),
                 filled: true,
                 fillColor: const Color(0xFFF0F4FB),
@@ -240,16 +250,12 @@ class _PlayerItem extends StatelessWidget {
                   const SizedBox(width: 4),
                   Text('(${player.gender}) ${player.age}세',
                       style: const TextStyle(
-                          fontSize: 11,
-                          color: AppColors.muted,
-                          height: 1.25)),
+                          fontSize: 11, color: AppColors.muted, height: 1.25)),
                 ]),
                 const SizedBox(height: 2),
                 Text(player.clubName,
                     style: const TextStyle(
-                        fontSize: 12,
-                        color: Color(0xFF1A1A1A),
-                        height: 1.25)),
+                        fontSize: 12, color: Color(0xFF1A1A1A), height: 1.25)),
               ],
             )),
             Column(

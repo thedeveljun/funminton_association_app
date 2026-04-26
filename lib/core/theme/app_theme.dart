@@ -21,7 +21,7 @@ class AppTheme {
           backgroundColor: AppColors.surface,
           foregroundColor: AppColors.text,
           elevation: 0,
-          centerTitle: true,
+          centerTitle: false,
           scrolledUnderElevation: 1,
           shadowColor: Color(0x18000000),
           systemOverlayStyle: SystemUiOverlayStyle(

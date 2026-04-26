@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../core/theme/app_colors.dart';
 
+const _adminInk = Color(0xFF0D1B3E);
+
 class AdminScreen extends StatefulWidget {
   const AdminScreen({super.key});
 
@@ -29,7 +31,25 @@ class _AdminScreenState extends State<AdminScreen>
     return Scaffold(
       backgroundColor: AppColors.gray,
       appBar: AppBar(
-        title: const Text('협회 행정'),
+        elevation: 0,
+        centerTitle: false,
+        titleSpacing: -4,
+        leadingWidth: 34,
+        leading: IconButton(
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(),
+          onPressed: () => Navigator.maybePop(context),
+          icon:
+              const Icon(Icons.arrow_back_ios_new, size: 20, color: _adminInk),
+        ),
+        title: const Text(
+          '협회 행정',
+          style: TextStyle(
+            fontSize: 19,
+            fontWeight: FontWeight.w700,
+            color: _adminInk,
+          ),
+        ),
         actions: [
           TextButton.icon(
             onPressed: () {},
@@ -61,7 +81,6 @@ class _AdminScreenState extends State<AdminScreen>
   }
 }
 
-// ── 공지사항 ──────────────────────────────────
 class _NoticeList extends StatelessWidget {
   const _NoticeList();
 
@@ -103,9 +122,7 @@ class _NoticeList extends StatelessWidget {
           padding: const EdgeInsets.all(14),
           decoration: const BoxDecoration(
             color: AppColors.white,
-            border: Border(
-              bottom: BorderSide(color: AppColors.divider),
-            ),
+            border: Border(bottom: BorderSide(color: AppColors.divider)),
           ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -122,43 +139,35 @@ class _NoticeList extends StatelessWidget {
                           color: isImportant ? AppColors.red3 : AppColors.gray2,
                           borderRadius: BorderRadius.circular(10),
                         ),
-                        child: Text(
-                          n['type']!,
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: isImportant
-                                ? const Color(0xFF742A2A)
-                                : AppColors.text2,
-                          ),
-                        ),
+                        child: Text(n['type']!,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: isImportant
+                                  ? const Color(0xFF742A2A)
+                                  : AppColors.text2,
+                            )),
                       ),
                       const SizedBox(width: 6),
                       Expanded(
-                        child: Text(
-                          n['title']!,
-                          style: const TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.text,
-                          ),
-                        ),
+                        child: Text(n['title']!,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.text,
+                            )),
                       ),
                     ]),
                     const SizedBox(height: 4),
-                    Text(
-                      n['content']!,
-                      style:
-                          const TextStyle(fontSize: 11, color: AppColors.muted),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
+                    Text(n['content']!,
+                        style: const TextStyle(
+                            fontSize: 11, color: AppColors.muted),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis),
                     const SizedBox(height: 4),
-                    Text(
-                      n['date']!,
-                      style:
-                          const TextStyle(fontSize: 11, color: AppColors.gray3),
-                    ),
+                    Text(n['date']!,
+                        style: const TextStyle(
+                            fontSize: 11, color: AppColors.gray3)),
                   ],
                 ),
               ),
@@ -171,7 +180,6 @@ class _NoticeList extends StatelessWidget {
   }
 }
 
-// ── 이사회 ────────────────────────────────────
 class _BoardList extends StatelessWidget {
   const _BoardList();
 
@@ -207,9 +215,7 @@ class _BoardList extends StatelessWidget {
           padding: const EdgeInsets.all(14),
           decoration: const BoxDecoration(
             color: AppColors.white,
-            border: Border(
-              bottom: BorderSide(color: AppColors.divider),
-            ),
+            border: Border(bottom: BorderSide(color: AppColors.divider)),
           ),
           child: Row(children: [
             Container(
@@ -220,28 +226,23 @@ class _BoardList extends StatelessWidget {
                 borderRadius: BorderRadius.circular(10),
               ),
               child: const Center(
-                child: Text('📋', style: TextStyle(fontSize: 20)),
-              ),
+                  child: Text('📋', style: TextStyle(fontSize: 20))),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    it['title']!,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.text,
-                    ),
-                  ),
+                  Text(it['title']!,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.text,
+                      )),
                   const SizedBox(height: 3),
-                  Text(
-                    '${it['date']} · ${it['place']}',
-                    style:
-                        const TextStyle(fontSize: 11, color: AppColors.muted),
-                  ),
+                  Text('${it['date']} · ${it['place']}',
+                      style: const TextStyle(
+                          fontSize: 11, color: AppColors.muted)),
                 ],
               ),
             ),
@@ -251,16 +252,14 @@ class _BoardList extends StatelessWidget {
                 color: isDone ? AppColors.green3 : AppColors.blue3,
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: Text(
-                it['status']!,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: isDone
-                      ? const Color(0xFF1C4532)
-                      : const Color(0xFF1A365D),
-                ),
-              ),
+              child: Text(it['status']!,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: isDone
+                        ? const Color(0xFF1C4532)
+                        : const Color(0xFF1A365D),
+                  )),
             ),
           ]),
         );
@@ -269,7 +268,6 @@ class _BoardList extends StatelessWidget {
   }
 }
 
-// ── 공문 ──────────────────────────────────────
 class _DocumentList extends StatelessWidget {
   const _DocumentList();
 
@@ -301,9 +299,7 @@ class _DocumentList extends StatelessWidget {
           padding: const EdgeInsets.all(14),
           decoration: const BoxDecoration(
             color: AppColors.white,
-            border: Border(
-              bottom: BorderSide(color: AppColors.divider),
-            ),
+            border: Border(bottom: BorderSide(color: AppColors.divider)),
           ),
           child: Row(children: [
             Container(
@@ -314,28 +310,23 @@ class _DocumentList extends StatelessWidget {
                 borderRadius: BorderRadius.circular(10),
               ),
               child: const Center(
-                child: Text('📄', style: TextStyle(fontSize: 20)),
-              ),
+                  child: Text('📄', style: TextStyle(fontSize: 20))),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    d['title']!,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.text,
-                    ),
-                  ),
+                  Text(d['title']!,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.text,
+                      )),
                   const SizedBox(height: 3),
-                  Text(
-                    '${d['date']} → ${d['to']}',
-                    style:
-                        const TextStyle(fontSize: 11, color: AppColors.muted),
-                  ),
+                  Text('${d['date']} → ${d['to']}',
+                      style: const TextStyle(
+                          fontSize: 11, color: AppColors.muted)),
                 ],
               ),
             ),

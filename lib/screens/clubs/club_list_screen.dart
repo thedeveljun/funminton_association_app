@@ -73,17 +73,24 @@ class _ClubListScreenState extends State<ClubListScreen> {
       backgroundColor: _soft,
       appBar: AppBar(
         backgroundColor: Colors.white,
+        elevation: 0,
+        centerTitle: false,
+        titleSpacing: -4,
+        leadingWidth: 34,
+        leading: IconButton(
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(),
+          onPressed: () => Navigator.maybePop(context),
+          icon: const Icon(Icons.arrow_back_ios_new, size: 20, color: _ink),
+        ),
         title: const Text(
           '클럽관리',
           style: TextStyle(
-            fontSize: 20,
+            fontSize: 19,
             fontWeight: FontWeight.w700,
             color: _ink,
-            letterSpacing: -0.4,
           ),
         ),
-        leading: const BackButton(color: _ink),
-        elevation: 0,
         actions: [
           TextButton.icon(
             onPressed: () => Navigator.push(
@@ -518,41 +525,35 @@ class _ClubListScreenState extends State<ClubListScreen> {
           child: Icon(icon, size: 12, color: accent),
         ),
         const SizedBox(width: 5),
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w400,
-            color: Color(0xFF1A1A1A),
-            letterSpacing: -0.2,
-            height: 1.0,
-          ),
-        ),
+        Text(label,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w400,
+              color: Color(0xFF1A1A1A),
+              letterSpacing: -0.2,
+              height: 1.0,
+            )),
         const SizedBox(width: 6),
         Flexible(
-          child: Text(
-            name,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF000000),
-              letterSpacing: -0.3,
-              height: 1.0,
-            ),
-          ),
+          child: Text(name,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF000000),
+                letterSpacing: -0.3,
+                height: 1.0,
+              )),
         ),
         const SizedBox(width: 8),
-        Text(
-          phone,
-          style: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-            color: Color(0xFF000000),
-            letterSpacing: -0.2,
-            height: 1.0,
-          ),
-        ),
+        Text(phone,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+              color: Color(0xFF000000),
+              letterSpacing: -0.2,
+              height: 1.0,
+            )),
       ],
     );
   }
@@ -572,15 +573,13 @@ class _ClubListScreenState extends State<ClubListScreen> {
         children: [
           const Icon(Icons.people_alt_rounded, size: 14, color: _primary),
           const SizedBox(width: 4),
-          Text(
-            '$count명',
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w800,
-              color: _primary,
-              letterSpacing: -0.3,
-            ),
-          ),
+          Text('$count명',
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: _primary,
+                letterSpacing: -0.3,
+              )),
         ],
       ),
     );
@@ -610,15 +609,13 @@ class _ClubListScreenState extends State<ClubListScreen> {
         color: cfg.bg,
         borderRadius: BorderRadius.circular(6),
       ),
-      child: Text(
-        cfg.label,
-        style: TextStyle(
-          fontSize: 10.5,
-          fontWeight: FontWeight.w800,
-          color: cfg.fg,
-          letterSpacing: -0.2,
-        ),
-      ),
+      child: Text(cfg.label,
+          style: TextStyle(
+            fontSize: 10.5,
+            fontWeight: FontWeight.w800,
+            color: cfg.fg,
+            letterSpacing: -0.2,
+          )),
     );
   }
 

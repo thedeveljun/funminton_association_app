@@ -6,6 +6,8 @@ import '../../widgets/common/app_badge.dart';
 import 'tournament_form_screen.dart';
 import 'bracket_screen.dart';
 
+const _tournamentInk = Color(0xFF0D1B3E);
+
 class TournamentListScreen extends StatefulWidget {
   const TournamentListScreen({super.key});
   @override
@@ -35,7 +37,25 @@ class _State extends State<TournamentListScreen>
   Widget build(BuildContext context) => Scaffold(
         backgroundColor: AppColors.gray,
         appBar: AppBar(
-          title: const Text('대회운영'),
+          elevation: 0,
+          centerTitle: false,
+          titleSpacing: -4,
+          leadingWidth: 34,
+          leading: IconButton(
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+            onPressed: () => Navigator.maybePop(context),
+            icon: const Icon(Icons.arrow_back_ios_new,
+                size: 20, color: _tournamentInk),
+          ),
+          title: const Text(
+            '대회운영',
+            style: TextStyle(
+              fontSize: 19,
+              fontWeight: FontWeight.w700,
+              color: _tournamentInk,
+            ),
+          ),
           actions: [
             TextButton.icon(
                 onPressed: () => Navigator.push(
@@ -133,7 +153,6 @@ class _TourneyCard extends StatelessWidget {
           ],
           const SizedBox(height: 10),
           Row(children: [
-            // ★ 대진표 버튼 — BracketScreen으로 이동
             Expanded(
                 child: ElevatedButton(
                     onPressed: () => Navigator.push(
