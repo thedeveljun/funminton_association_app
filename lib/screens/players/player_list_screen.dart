@@ -5,6 +5,7 @@ import '../../services/sample_data.dart';
 import '../../widgets/common/filter_chips.dart';
 import 'player_detail_screen.dart';
 import 'player_form_screen.dart';
+import '../clubs/upload_screen.dart';
 
 const _searchInk = Color(0xFF0D1B3E);
 const _searchMuted = Color(0xFF9BA8BB);
@@ -56,12 +57,24 @@ class _PlayerListScreenState extends State<PlayerListScreen> {
         title: const Text(
           '선수/동호인 관리',
           style: TextStyle(
-            fontSize: 19,
-            fontWeight: FontWeight.w700,
-            color: _searchInk,
-          ),
+              fontSize: 19, fontWeight: FontWeight.w700, color: _searchInk),
         ),
         actions: [
+          // ── 📤 엑셀 업로드 ──────────────────────
+          IconButton(
+            onPressed: () async {
+              final result = await Navigator.push<bool>(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => UploadScreen(type: UploadType.player),
+                ),
+              );
+              if (result == true) setState(() {});
+            },
+            icon: const Icon(Icons.upload_file_rounded, color: _searchAccent),
+            tooltip: '엑셀 업로드',
+          ),
+          // ── ➕ 직접 등록 ─────────────────────────
           TextButton.icon(
             onPressed: () => Navigator.push(context,
                 MaterialPageRoute(builder: (_) => const PlayerFormScreen())),
@@ -81,49 +94,40 @@ class _PlayerListScreenState extends State<PlayerListScreen> {
               controller: _ctrl,
               onChanged: (_) => setState(() {}),
               style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: _searchInk,
-                letterSpacing: -0.3,
-              ),
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: _searchInk,
+                  letterSpacing: -0.3),
               decoration: InputDecoration(
                 hintText: '선수명, 클럽명 검색',
                 hintStyle: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                  color: _searchMuted,
-                ),
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: _searchMuted),
                 prefixIcon: const Icon(Icons.person_search_rounded,
                     size: 18, color: _searchAccent),
-                prefixIconConstraints: const BoxConstraints(
-                  minWidth: 34,
-                  minHeight: 34,
-                ),
+                prefixIconConstraints:
+                    const BoxConstraints(minWidth: 34, minHeight: 34),
                 isDense: true,
                 contentPadding:
                     const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(11),
-                  borderSide: BorderSide.none,
-                ),
+                    borderRadius: BorderRadius.circular(11),
+                    borderSide: BorderSide.none),
                 enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(11),
-                  borderSide: BorderSide.none,
-                ),
+                    borderRadius: BorderRadius.circular(11),
+                    borderSide: BorderSide.none),
                 focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(11),
-                  borderSide:
-                      const BorderSide(color: _searchAccent, width: 1.4),
-                ),
+                    borderRadius: BorderRadius.circular(11),
+                    borderSide:
+                        const BorderSide(color: _searchAccent, width: 1.4)),
                 filled: true,
                 fillColor: const Color(0xFFF0F4FB),
                 suffixIcon: _ctrl.text.isNotEmpty
                     ? IconButton(
                         padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(
-                          minWidth: 32,
-                          minHeight: 32,
-                        ),
+                        constraints:
+                            const BoxConstraints(minWidth: 32, minHeight: 32),
                         icon: const Icon(Icons.close_rounded,
                             size: 16, color: _searchMuted),
                         onPressed: () => setState(() => _ctrl.clear()),
