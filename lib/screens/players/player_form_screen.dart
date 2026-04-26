@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/theme/app_colors.dart';
+import '../../widgets/common/form_action_bar.dart';
 
 class _PhoneNumberFormatter extends TextInputFormatter {
   @override
@@ -30,8 +31,12 @@ class PlayerFormScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Scaffold(
         backgroundColor: AppColors.gray,
-        appBar:
-            AppBar(title: const Text('선수 등록', style: TextStyle(fontSize: 21))),
+        appBar: AppBar(
+          title: const Text('선수 등록',
+              style: TextStyle(fontSize: 19, fontWeight: FontWeight.w700)),
+          centerTitle: false,
+          elevation: 0,
+        ),
         body: SingleChildScrollView(
           padding: const EdgeInsets.all(14),
           child:
@@ -115,35 +120,12 @@ class PlayerFormScreen extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 20),
           ]),
         ),
-        bottomNavigationBar: SafeArea(
-          child: Container(
-            padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-            decoration: BoxDecoration(
-              color: AppColors.white,
-              border: Border(
-                top: BorderSide(color: AppColors.gray2, width: 0.5),
-              ),
-            ),
-            child: Row(children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('취소', style: TextStyle(fontSize: 17)),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                flex: 2,
-                child: ElevatedButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('등록', style: TextStyle(fontSize: 17)),
-                ),
-              ),
-            ]),
-          ),
+        bottomNavigationBar: FormActionBar(
+          onSubmit: () => Navigator.pop(context),
+          submitLabel: '등록',
         ),
       );
 

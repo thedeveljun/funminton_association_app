@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/theme/app_colors.dart';
+import '../../widgets/common/form_action_bar.dart';
 
 class TournamentFormScreen extends StatelessWidget {
   const TournamentFormScreen({super.key});
@@ -7,7 +8,12 @@ class TournamentFormScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Scaffold(
         backgroundColor: AppColors.gray,
-        appBar: AppBar(title: const Text('대회 등록')),
+        appBar: AppBar(
+          title: const Text('대회 등록',
+              style: TextStyle(fontSize: 19, fontWeight: FontWeight.w700)),
+          centerTitle: false,
+          elevation: 0,
+        ),
         body: SingleChildScrollView(
           padding: const EdgeInsets.all(14),
           child:
@@ -45,21 +51,12 @@ class TournamentFormScreen extends StatelessWidget {
             TextField(
                 maxLines: 3,
                 decoration: const InputDecoration(hintText: '대회 관련 안내 사항 입력')),
-            const SizedBox(height: 24),
-            Row(children: [
-              Expanded(
-                  child: OutlinedButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('취소'))),
-              const SizedBox(width: 10),
-              Expanded(
-                  flex: 2,
-                  child: ElevatedButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('등록'))),
-            ]),
             const SizedBox(height: 20),
           ]),
+        ),
+        bottomNavigationBar: FormActionBar(
+          onSubmit: () => Navigator.pop(context),
+          submitLabel: '등록',
         ),
       );
 
