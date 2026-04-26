@@ -1,0 +1,280 @@
+import 'package:flutter/material.dart';
+import '../../core/theme/app_colors.dart';
+import '../../models/player.dart';
+import '../../services/sample_data.dart';
+import '../../widgets/common/filter_chips.dart';
+import 'player_detail_screen.dart';
+import 'player_form_screen.dart';
+
+const _searchInk = Color(0xFF0D1B3E);
+const _searchMuted = Color(0xFF9BA8BB);
+const _searchAccent = Color(0xFF22A06B);
+
+class PlayerListScreen extends StatefulWidget {
+  const PlayerListScreen({super.key});
+  @override
+  State<PlayerListScreen> createState() => _PlayerListScreenState();
+}
+
+class _PlayerListScreenState extends State<PlayerListScreen> {
+  String _gradeFilter = '전체';
+  String _genderFilter = '전체';
+  final _ctrl = TextEditingController();
+
+  List<Player> get _filtered {
+    var list = SampleData.players.toList();
+    if (_gradeFilter != '전체')
+      list = list.where((p) => p.grade == _gradeFilter).toList();
+    if (_genderFilter != '전체')
+      list = list.where((p) => p.gender == _genderFilter).toList();
+    final q = _ctrl.text.trim();
+    if (q.isNotEmpty)
+      list = list
+          .where((p) => p.name.contains(q) || p.clubName.contains(q))
+          .toList();
+    list.sort((a, b) => a.name.compareTo(b.name));
+    return list;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = _filtered;
+    return Scaffold(
+      backgroundColor: AppColors.gray,
+      appBar: AppBar(
+        title: const Text(
+          '선수/동호인 관리',
+          style: TextStyle(
+            fontSize: 21,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF0D1B3E),
+            letterSpacing: -0.4,
+          ),
+        ),
+        actions: [
+          TextButton.icon(
+            onPressed: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const PlayerFormScreen())),
+            icon: const Icon(Icons.add, size: 18),
+            label:
+                const Text('등록', style: TextStyle(fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+      body: Column(children: [
+        Container(
+          color: AppColors.white,
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+          child: SizedBox(
+            height: 37,
+            child: TextField(
+              controller: _ctrl,
+              onChanged: (_) => setState(() {}),
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: _searchInk,
+                letterSpacing: -0.3,
+              ),
+              decoration: InputDecoration(
+                hintText: '선수명, 클럽명 검색',
+                hintStyle: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: _searchMuted,
+                ),
+                prefixIcon: const Icon(Icons.person_search_rounded,
+                    size: 18, color: _searchAccent),
+                prefixIconConstraints: const BoxConstraints(
+                  minWidth: 34,
+                  minHeight: 34,
+                ),
+                isDense: true,
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(11),
+                  borderSide: BorderSide.none,
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(11),
+                  borderSide: BorderSide.none,
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(11),
+                  borderSide: const BorderSide(
+                      color: _searchAccent, width: 1.4),
+                ),
+                filled: true,
+                fillColor: const Color(0xFFF0F4FB),
+                suffixIcon: _ctrl.text.isNotEmpty
+                    ? IconButton(
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(
+                          minWidth: 32,
+                          minHeight: 32,
+                        ),
+                        icon: const Icon(Icons.close_rounded,
+                            size: 16, color: _searchMuted),
+                        onPressed: () => setState(() => _ctrl.clear()),
+                      )
+                    : null,
+              ),
+            ),
+          ),
+        ),
+        FilterChipRow(
+          options: const ['전체', 'A조', 'B조', 'C조', 'D조', '초심조'],
+          selected: _gradeFilter,
+          onSelect: (v) => setState(() => _gradeFilter = v),
+        ),
+        FilterChipRow(
+          options: const ['전체', '남', '여'],
+          selected: _genderFilter,
+          onSelect: (v) => setState(() => _genderFilter = v),
+        ),
+        Container(
+          color: AppColors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          child: Row(children: [
+            Text('총 ${filtered.length}명',
+                style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.muted)),
+          ]),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: ListView.builder(
+            itemCount: filtered.length,
+            itemBuilder: (ctx, i) => _PlayerItem(
+              player: filtered[i],
+              index: i + 1,
+              onTap: () => Navigator.push(
+                  ctx,
+                  MaterialPageRoute(
+                      builder: (_) => PlayerDetailScreen(player: filtered[i]))),
+            ),
+          ),
+        ),
+      ]),
+    );
+  }
+}
+
+Color _gradePastelBg(String grade) {
+  switch (grade) {
+    case 'A조':
+      return const Color(0xFFDBEAFE);
+    case 'B조':
+      return const Color(0xFFD1FAE5);
+    case 'C조':
+      return const Color(0xFFFEF3C7);
+    case 'D조':
+      return const Color(0xFFFFE4E6);
+    case '초심조':
+      return const Color(0xFFF3E8FF);
+    case 'S조':
+      return const Color(0xFFE0F2FE);
+    default:
+      return const Color(0xFFF1F5F9);
+  }
+}
+
+Color _gradePastelFg(String grade) {
+  switch (grade) {
+    case 'A조':
+      return const Color(0xFF1E40AF);
+    case 'B조':
+      return const Color(0xFF065F46);
+    case 'C조':
+      return const Color(0xFF92400E);
+    case 'D조':
+      return const Color(0xFF9F1239);
+    case '초심조':
+      return const Color(0xFF6B21A8);
+    case 'S조':
+      return const Color(0xFF075985);
+    default:
+      return const Color(0xFF6B7A99);
+  }
+}
+
+class _PlayerItem extends StatelessWidget {
+  final Player player;
+  final int index;
+  final VoidCallback onTap;
+  const _PlayerItem(
+      {required this.player, required this.index, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          decoration: const BoxDecoration(
+              color: AppColors.white,
+              border: Border(bottom: BorderSide(color: AppColors.divider))),
+          child: Row(children: [
+            SizedBox(
+                width: 28,
+                child: Text('$index',
+                    style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.muted),
+                    textAlign: TextAlign.center)),
+            const SizedBox(width: 8),
+            Expanded(
+                child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(children: [
+                  Text(player.name,
+                      style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.text,
+                          height: 1.25)),
+                  const SizedBox(width: 4),
+                  Text('(${player.gender}) ${player.age}세',
+                      style: const TextStyle(
+                          fontSize: 11,
+                          color: AppColors.muted,
+                          height: 1.25)),
+                ]),
+                const SizedBox(height: 2),
+                Text(player.clubName,
+                    style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF1A1A1A),
+                        height: 1.25)),
+              ],
+            )),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: _gradePastelBg(player.grade),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(player.grade,
+                      style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          color: _gradePastelFg(player.grade))),
+                ),
+                const SizedBox(height: 2),
+                Text(player.phone,
+                    style: const TextStyle(
+                        fontSize: 12, color: Color(0xFF1A1A1A))),
+              ],
+            ),
+          ]),
+        ),
+      );
+}
