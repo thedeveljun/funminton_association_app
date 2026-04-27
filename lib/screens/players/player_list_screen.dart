@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/theme/app_colors.dart';
+import '../../models/club.dart';
 import '../../models/player.dart';
 import '../../services/sample_data.dart';
 import '../../widgets/common/filter_chips.dart';
@@ -69,15 +70,22 @@ class _PlayerListScreenState extends State<PlayerListScreen> {
                   builder: (_) => UploadScreen(type: UploadType.player),
                 ),
               );
-              if (result == true) setState(() {});
+              if (result == true) {
+                setState(() {});
+                await SampleData.savePlayers();
+              }
             },
             icon: const Icon(Icons.upload_file_rounded, color: _searchAccent),
             tooltip: '엑셀 업로드',
           ),
           // ── ➕ 직접 등록 ─────────────────────────
           TextButton.icon(
-            onPressed: () => Navigator.push(context,
-                MaterialPageRoute(builder: (_) => const PlayerFormScreen())),
+            onPressed: () async {
+              await Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const PlayerFormScreen()));
+              setState(() {});
+              await SampleData.savePlayers();
+            },
             icon: const Icon(Icons.add, size: 18),
             label:
                 const Text('등록', style: TextStyle(fontWeight: FontWeight.w700)),
@@ -87,7 +95,7 @@ class _PlayerListScreenState extends State<PlayerListScreen> {
       body: Column(children: [
         Container(
           color: AppColors.white,
-          padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
           child: SizedBox(
             height: 37,
             child: TextField(
@@ -149,11 +157,12 @@ class _PlayerListScreenState extends State<PlayerListScreen> {
         ),
         Container(
           color: AppColors.white,
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
           child: Row(children: [
-            Text('총 ${filtered.length}명',
+            Text(
+                '총 ${filtered.length.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},')}명',
                 style: const TextStyle(
-                    fontSize: 12,
+                    fontSize: 13,
                     fontWeight: FontWeight.w600,
                     color: AppColors.muted)),
           ]),
@@ -254,12 +263,19 @@ class _PlayerItem extends StatelessWidget {
                   const SizedBox(width: 4),
                   Text('(${player.gender}) ${player.age}세',
                       style: const TextStyle(
-                          fontSize: 11, color: AppColors.muted, height: 1.25)),
+                          fontSize: 11,
+                          color: Color(0xFF1A1A1A),
+                          fontWeight: FontWeight.w500,
+                          height: 1.25)),
                 ]),
                 const SizedBox(height: 2),
-                Text(player.clubName,
+                Text(
+                    SampleData.clubs
+                        .firstWhere((c) => c.id == player.clubId,
+                            orElse: () => const Club(id: '', name: ''))
+                        .name,
                     style: const TextStyle(
-                        fontSize: 12, color: Color(0xFF1A1A1A), height: 1.25)),
+                        fontSize: 13, color: Color(0xFF1A1A1A), height: 1.25)),
               ],
             )),
             Column(
@@ -281,7 +297,7 @@ class _PlayerItem extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(player.phone,
                     style: const TextStyle(
-                        fontSize: 12, color: Color(0xFF1A1A1A))),
+                        fontSize: 13, color: Color(0xFF1A1A1A))),
               ],
             ),
           ]),

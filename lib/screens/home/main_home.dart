@@ -111,15 +111,6 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Column(
               children: [
                 _WideCard(
-                  icon: Icons.leaderboard_rounded,
-                  title: '랭킹 / 성적관리',
-                  subtitle: '급수별 · 클럽별 순위',
-                  iconColor: const Color(0xFFD97706),
-                  iconBgColor: const Color(0xFFFEF3C7),
-                  onTap: () => _go(const RankingsScreen()),
-                ),
-                const SizedBox(height: 10),
-                _WideCard(
                   icon: Icons.admin_panel_settings_rounded,
                   title: '협회 행정',
                   subtitle: '공문 · 이사회 · 공지',
@@ -245,7 +236,7 @@ class _HomeScreenState extends State<HomeScreen> {
         SampleData.tournaments.where((t) => t.status == 'ongoing').length;
     return Container(
       color: const Color.fromARGB(255, 18, 33, 116),
-      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
       child: Row(
         children: [
           Expanded(
@@ -256,7 +247,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           Container(
             width: 1,
-            height: 32,
+            height: 24,
             color: Colors.white.withOpacity(0.14),
           ),
           Expanded(
@@ -267,7 +258,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           Container(
             width: 1,
-            height: 32,
+            height: 24,
             color: Colors.white.withOpacity(0.14),
           ),
           Expanded(

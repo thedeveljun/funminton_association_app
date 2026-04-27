@@ -395,8 +395,8 @@ class _ClubListScreenState extends State<ClubListScreen> {
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
                                   fontSize: 18,
-                                  fontWeight: FontWeight.w600,
-                                  color: _ink,
+                                  fontWeight: FontWeight.w500,
+                                  color: Color.fromARGB(255, 16, 40, 102),
                                   letterSpacing: -0.4,
                                   height: 1.05)),
                         ),
@@ -429,7 +429,7 @@ class _ClubListScreenState extends State<ClubListScreen> {
                           '총 ${SampleData.players.where((p) => p.clubId == club.id).length}명',
                           style: const TextStyle(
                             fontSize: 14,
-                            fontWeight: FontWeight.w800,
+                            fontWeight: FontWeight.w500,
                             color: Color(0xFF0F2557),
                             letterSpacing: -0.3,
                           )),
@@ -591,7 +591,7 @@ class _ClubListScreenState extends State<ClubListScreen> {
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
                   fontSize: 16,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.w500,
                   color: Color(0xFF000000),
                   letterSpacing: -0.3,
                   height: 1.0)),
@@ -600,7 +600,7 @@ class _ClubListScreenState extends State<ClubListScreen> {
         Text(phone,
             style: const TextStyle(
                 fontSize: 14,
-                fontWeight: FontWeight.w500,
+                fontWeight: FontWeight.w400,
                 color: Color(0xFF000000),
                 letterSpacing: -0.2,
                 height: 1.0)),

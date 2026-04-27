@@ -5,10 +5,41 @@ import '../../models/player.dart';
 import '../../services/sample_data.dart';
 import '../../widgets/common/section_header.dart';
 import '../players/player_list_screen.dart';
+import 'club_form_screen.dart';
 
-class ClubDetailScreen extends StatelessWidget {
+class ClubDetailScreen extends StatefulWidget {
   final Club club;
   const ClubDetailScreen({super.key, required this.club});
+
+  @override
+  State<ClubDetailScreen> createState() => _ClubDetailScreenState();
+}
+
+class _ClubDetailScreenState extends State<ClubDetailScreen> {
+  late Club club;
+
+  @override
+  void initState() {
+    super.initState();
+    club = widget.club;
+  }
+
+  Future<void> _editClub() async {
+    final updated = await Navigator.push<Club>(
+      context,
+      MaterialPageRoute(builder: (_) => ClubFormScreen(initial: club)),
+    );
+    if (updated != null) {
+      setState(() {
+        club = updated;
+        // SampleData에도 반영
+        final sIdx = SampleData.clubs.indexWhere((c) => c.id == club.id);
+        if (sIdx >= 0) SampleData.clubs[sIdx] = updated;
+      });
+      // 영구 저장
+      await SampleData.saveClubs();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -18,7 +49,7 @@ class ClubDetailScreen extends StatelessWidget {
         title: const Text('클럽 상세'),
         actions: [
           TextButton(
-            onPressed: () {},
+            onPressed: _editClub,
             child:
                 const Text('편집', style: TextStyle(fontWeight: FontWeight.w600)),
           ),
@@ -26,45 +57,19 @@ class ClubDetailScreen extends StatelessWidget {
       ),
       body: SingleChildScrollView(
         child: Column(children: [
-          // ── 헤더 (원형 아바타 제거) ────────────
-          Container(
-            color: AppColors.white,
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // 클럽명 +2pt → 20pt
-                Text(club.name,
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w900,
-                      color: AppColors.text,
-                      letterSpacing: -0.5,
-                    )),
-                const SizedBox(height: 4),
-                Text(club.memberType,
-                    style:
-                        const TextStyle(fontSize: 13, color: AppColors.muted)),
-              ],
-            ),
-          ),
-          const SizedBox(height: 8),
           // ── 기본 정보 ──────────────────────────
           Container(
             color: AppColors.white,
             child: Column(children: [
               const SectionHeader('기본 정보'),
-              // 회장 +2pt → 15pt, 전화 검정 +1pt → 14pt
-              _InfoRow('회장', club.presidentName, fontSize: 15),
-              _InfoRow('회장 연락처', club.presidentPhone,
-                  fontSize: 18, textColor: AppColors.text),
-              _InfoRow('총무', club.secretaryName, fontSize: 15),
-              _InfoRow('총무 연락처', club.secretaryPhone,
-                  fontSize: 18, textColor: AppColors.text),
-              _InfoRow('창단일', club.foundedAt),
+              _InfoRow('회장', club.presidentName),
+              _InfoRow('회장 연락처', club.presidentPhone),
+              _InfoRow('총무', club.secretaryName),
+              _InfoRow('총무 연락처', club.secretaryPhone),
               _InfoRow('회원수', '${club.memberCount}명'),
-              _InfoRow('연습 장소', club.venue),
-              _InfoRow('연습 요일', club.practiceDay),
+              _InfoRow('운동 장소', club.venue),
+              _InfoRow('요일', club.practiceDay),
+              _InfoRow('시간', club.practiceTime),
             ]),
           ),
           const SizedBox(height: 8),
@@ -163,8 +168,7 @@ class ClubDetailScreen extends StatelessWidget {
 // ── 공통 위젯 ─────────────────────────────────
 
 List<Widget> _memberRows(Club club) {
-  final members =
-      SampleData.players.where((p) => p.clubId == club.id).toList();
+  final members = SampleData.players.where((p) => p.clubId == club.id).toList();
   return [
     for (var i = 0; i < members.length; i++)
       _MemberRow(player: members[i], index: i + 1),
@@ -244,24 +248,19 @@ class _MemberRow extends StatelessWidget {
                 const SizedBox(width: 4),
                 Text('(${player.gender}) ${player.age}세',
                     style: const TextStyle(
-                        fontSize: 11,
-                        color: AppColors.muted,
-                        height: 1.25)),
+                        fontSize: 11, color: AppColors.muted, height: 1.25)),
               ]),
               const SizedBox(height: 2),
               Text(player.clubName,
                   style: const TextStyle(
-                      fontSize: 12,
-                      color: Color(0xFF1A1A1A),
-                      height: 1.25)),
+                      fontSize: 12, color: Color(0xFF1A1A1A), height: 1.25)),
             ],
           )),
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
                   color: _memberPastelBg(player.grade),
                   borderRadius: BorderRadius.circular(8),
@@ -291,18 +290,18 @@ class _InfoRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
         decoration: const BoxDecoration(
             border: Border(
                 bottom: BorderSide(color: AppColors.divider, width: 0.5))),
         child:
             Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
           Text(label,
-              style: const TextStyle(fontSize: 13, color: AppColors.muted)),
+              style: const TextStyle(fontSize: 15, color: AppColors.muted)),
           Text(value,
               style: TextStyle(
-                  fontSize: fontSize,
-                  fontWeight: FontWeight.w700,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w500,
                   color: textColor ?? AppColors.text)),
         ]),
       );
@@ -317,7 +316,7 @@ class _GradeBox extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Expanded(
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 10),
+          padding: const EdgeInsets.symmetric(vertical: 8),
           decoration: BoxDecoration(
               color: color.withOpacity(.12),
               borderRadius: BorderRadius.circular(10)),

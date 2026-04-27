@@ -58,10 +58,14 @@ class _State extends State<TournamentListScreen>
           ),
           actions: [
             TextButton.icon(
-                onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (_) => const TournamentFormScreen())),
+                onPressed: () async {
+                  await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const TournamentFormScreen()));
+                  setState(() {});
+                  await SampleData.saveTournaments();
+                },
                 icon: const Icon(Icons.add, size: 18),
                 label: const Text('대회',
                     style: TextStyle(fontWeight: FontWeight.w700))),

@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:excel/excel.dart' as xl;
 import 'package:path_provider/path_provider.dart';
+import 'package:open_filex/open_filex.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../models/club.dart';
 import '../../models/player.dart';
 import '../../services/sample_data.dart';
@@ -490,29 +492,82 @@ class _UploadScreenState extends State<UploadScreen> {
                               border:
                                   Border.all(color: const Color(0xFFA7F3D0)),
                             ),
-                            child: Row(
+                            child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Icon(Icons.check_circle_rounded,
-                                    size: 16, color: _green),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      const Text('저장 완료',
-                                          style: TextStyle(
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.w700,
-                                              color: _green)),
-                                      const SizedBox(height: 2),
-                                      Text(_savedPath!,
-                                          style: const TextStyle(
-                                              fontSize: 11, color: _subtitle)),
-                                    ],
-                                  ),
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Icon(Icons.check_circle_rounded,
+                                        size: 16, color: _green),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          const Text('저장 완료',
+                                              style: TextStyle(
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w700,
+                                                  color: _green)),
+                                          const SizedBox(height: 2),
+                                          Text(_savedPath!,
+                                              style: const TextStyle(
+                                                  fontSize: 11,
+                                                  color: _subtitle)),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
                                 ),
+                                const SizedBox(height: 10),
+                                Row(children: [
+                                  Expanded(
+                                    child: ElevatedButton.icon(
+                                      onPressed: () =>
+                                          OpenFilex.open(_savedPath!),
+                                      icon: const Icon(Icons.open_in_new,
+                                          size: 16),
+                                      label: const Text('열기'),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: _green,
+                                        foregroundColor: Colors.white,
+                                        elevation: 0,
+                                        padding: const EdgeInsets.symmetric(
+                                            vertical: 8),
+                                        shape: RoundedRectangleBorder(
+                                            borderRadius:
+                                                BorderRadius.circular(8)),
+                                        textStyle: const TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w700),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: OutlinedButton.icon(
+                                      onPressed: () => Share.shareXFiles(
+                                          [XFile(_savedPath!)]),
+                                      icon: const Icon(Icons.share, size: 16),
+                                      label: const Text('공유'),
+                                      style: OutlinedButton.styleFrom(
+                                        foregroundColor: _green,
+                                        side: const BorderSide(
+                                            color: _green, width: 1.2),
+                                        padding: const EdgeInsets.symmetric(
+                                            vertical: 8),
+                                        shape: RoundedRectangleBorder(
+                                            borderRadius:
+                                                BorderRadius.circular(8)),
+                                        textStyle: const TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w700),
+                                      ),
+                                    ),
+                                  ),
+                                ]),
                               ],
                             ),
                           ),

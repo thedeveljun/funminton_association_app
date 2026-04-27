@@ -1,44 +1,150 @@
-@echo off
-chcp 65001 >nul
-title 배드민턴 협회 앱 실행
-color 0B
+import 'package:sqflite/sqflite.dart';
+import 'package:path/path.dart';
 
-cd /d "%~dp0"
+class DatabaseService {
+  static final DatabaseService instance = DatabaseService._internal();
+  DatabaseService._internal();
 
-echo.
-echo ========================================
-echo   배드민턴 협회 앱 - 동시 실행 모드
-echo ========================================
-echo.
-echo   [1/3] 패키지 설치 확인 중...
-call flutter pub get
-echo.
+  Database? _db;
 
-echo   [2/3] Chrome 창을 새로 엽니다...
-start "Funminton-Chrome" cmd /k "color 0E && title 컴퓨터(Chrome) - r=핫리로드, q=종료 && cd /d %~dp0 && flutter run -d chrome"
+  Future<void> init() async {
+    final dbPath = await getDatabasesPath();
+    _db = await openDatabase(
+      join(dbPath, 'badminton_association.db'),
+      version: 1,
+      onCreate: _onCreate,
+    );
+  }
 
-timeout /t 3 /nobreak >nul
+  Future<void> _onCreate(Database db, int version) async {
+    // 클럽 테이블
+    await db.execute('''
+      CREATE TABLE clubs (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        region TEXT,
+        member_type TEXT,
+        president_name TEXT,
+        president_phone TEXT,
+        secretary_name TEXT,
+        secretary_phone TEXT,
+        venue TEXT,
+        founded_at TEXT,
+        member_count INTEGER DEFAULT 0,
+        fee_paid INTEGER DEFAULT 0
+      )
+    ''');
 
-echo   [3/3] 휴대폰(Samsung SM)에 설치합니다...
-echo.
-echo   ========================================
-echo   ※ 코드 수정 후 r 키 누르면 즉시 반영
-echo   ※ q 키 누르면 종료
-echo   ========================================
-echo.
+    // 선수 테이블 (주민번호 앞자리만 저장)
+    await db.execute('''
+      CREATE TABLE players (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        gender TEXT,
+        birth_date TEXT,
+        grade TEXT,
+        club_id TEXT,
+        club_name TEXT,
+        phone TEXT,
+        reg_number TEXT,
+        age INTEGER,
+        FOREIGN KEY (club_id) REFERENCES clubs(id)
+      )
+    ''');
 
-start "Funminton-Phone" cmd /k "color 0A && title 휴대폰(Samsung SM) - r=핫리로드, q=종료 && cd /d %~dp0 && flutter run -d SM"
+    // 대회 테이블
+    await db.execute('''
+      CREATE TABLE tournaments (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        start_date TEXT,
+        end_date TEXT,
+        venue TEXT,
+        event_type TEXT,
+        target_grade TEXT,
+        entry_fee INTEGER DEFAULT 0,
+        status TEXT DEFAULT 'upcoming',
+        participant_count INTEGER DEFAULT 0
+      )
+    ''');
 
-timeout /t 2 /nobreak >nul
+    // 경기 테이블
+    await db.execute('''
+      CREATE TABLE matches (
+        id TEXT PRIMARY KEY,
+        tournament_id TEXT,
+        court_number INTEGER,
+        venue_id TEXT,
+        venue_name TEXT,
+        match_type TEXT,
+        team_a_ids TEXT,
+        team_b_ids TEXT,
+        score_a INTEGER,
+        score_b INTEGER,
+        is_done INTEGER DEFAULT 0,
+        day_number INTEGER DEFAULT 1,
+        FOREIGN KEY (tournament_id) REFERENCES tournaments(id)
+      )
+    ''');
 
-echo.
-echo   두 창이 모두 열렸습니다!
-echo.
-echo   - 노란색 창: Chrome (컴퓨터)
-echo   - 초록색 창: 휴대폰 (Samsung)
-echo.
-echo   각 창에서 r 키를 누르면 코드 변경사항이 즉시 반영됩니다.
-echo.
-echo   이 창은 닫으셔도 됩니다.
-echo.
-pause
+    // 재정 테이블
+    await db.execute('''
+      CREATE TABLE transactions (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        amount INTEGER NOT NULL,
+        type TEXT,
+        category TEXT,
+        date TEXT,
+        club_id TEXT,
+        memo TEXT
+      )
+    ''');
+  }
+
+  Database get db => _db!;
+
+  // 클럽 CRUD
+  Future<List<Map<String, dynamic>>> getClubs() async =>
+      await db.query('clubs', orderBy: 'name');
+
+  Future<void> insertClub(Map<String, dynamic> club) async =>
+      await db.insert('clubs', club);
+
+  Future<void> updateClub(Map<String, dynamic> club) async =>
+      await db.update('clubs', club, where: 'id = ?', whereArgs: [club['id']]);
+
+  Future<void> deleteClub(String id) async =>
+      await db.delete('clubs', where: 'id = ?', whereArgs: [id]);
+
+  // 선수 CRUD
+  Future<List<Map<String, dynamic>>> getPlayers(
+      {String? grade, String? gender}) async {
+    String where = '';
+    final args = <dynamic>[];
+    if (grade != null && grade != '전체') {
+      where = 'grade = ?';
+      args.add(grade);
+    }
+    if (gender != null) {
+      where += where.isEmpty ? 'gender = ?' : ' AND gender = ?';
+      args.add(gender);
+    }
+    return await db.query(
+      'players',
+      where: where.isEmpty ? null : where,
+      whereArgs: args.isEmpty ? null : args,
+      orderBy: 'name',
+    );
+  }
+
+  Future<void> insertPlayer(Map<String, dynamic> player) async =>
+      await db.insert('players', player);
+
+  // 재정 CRUD
+  Future<List<Map<String, dynamic>>> getTransactions() async =>
+      await db.query('transactions', orderBy: 'date DESC');
+
+  Future<void> insertTransaction(Map<String, dynamic> tx) async =>
+      await db.insert('transactions', tx);
+}

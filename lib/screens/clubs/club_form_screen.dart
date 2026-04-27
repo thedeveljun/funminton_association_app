@@ -57,7 +57,7 @@ class _ClubFormScreenState extends State<ClubFormScreen> {
     _secretaryPhoneCtrl = TextEditingController(text: c?.secretaryPhone ?? '');
     _venueCtrl = TextEditingController(text: c?.venue ?? '');
     _dayCtrl = TextEditingController(text: c?.practiceDay ?? '');
-    _timeCtrl = TextEditingController(text: '');
+    _timeCtrl = TextEditingController(text: c?.practiceTime ?? '');
   }
 
   @override
@@ -91,6 +91,7 @@ class _ClubFormScreenState extends State<ClubFormScreen> {
       secretaryPhone: _secretaryPhoneCtrl.text.trim(),
       venue: _venueCtrl.text.trim(),
       practiceDay: _dayCtrl.text.trim(),
+      practiceTime: _timeCtrl.text.trim(),
       memberType: widget.initial?.memberType ?? '정회원',
       memberCount: widget.initial?.memberCount ?? 0,
       payStatus: widget.initial?.payStatus ?? ClubPayStatus.unpaid,
@@ -192,8 +193,8 @@ class _ClubFormScreenState extends State<ClubFormScreen> {
         children: [
           Text(label,
               style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w600,
                   color: AppColors.text2)),
           const SizedBox(height: 4),
           TextField(

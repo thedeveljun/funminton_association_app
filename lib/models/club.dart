@@ -16,6 +16,7 @@ class Club {
   final String venue;
   final String foundedAt;
   final String practiceDay;
+  final String practiceTime;
   final int memberCount;
   final ClubPayStatus payStatus; // 납부 현황 (완납/일부납부/미납)
   final String status;
@@ -41,6 +42,7 @@ class Club {
     this.venue = '',
     this.foundedAt = '',
     this.practiceDay = '',
+    this.practiceTime = '',
     this.memberCount = 0,
     this.payStatus = ClubPayStatus.unpaid,
     this.status = '활성',
@@ -96,6 +98,7 @@ class Club {
         'venue': venue,
         'founded_at': foundedAt,
         'practice_day': practiceDay,
+        'practice_time': practiceTime,
         'member_count': memberCount,
         'pay_status': payStatus.index,
         'status': status,
@@ -120,6 +123,7 @@ class Club {
         venue: m['venue'] ?? '',
         foundedAt: m['founded_at'] ?? '',
         practiceDay: m['practice_day'] ?? '',
+        practiceTime: m['practice_time'] ?? '',
         memberCount: m['member_count'] ?? 0,
         payStatus: ClubPayStatus.values[m['pay_status'] ?? 2],
         status: m['status'] ?? '활성',

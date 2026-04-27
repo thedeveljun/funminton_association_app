@@ -72,6 +72,7 @@ class Player {
         'phone': phone,
         'reg_number': regNumber,
         'age': age,
+        'awards': awards,
       };
 
   factory Player.fromMap(Map<String, dynamic> m) => Player(
@@ -85,5 +86,6 @@ class Player {
         phone: m['phone'] ?? '',
         regNumber: m['reg_number'] ?? '',
         age: m['age'] ?? 0,
+        awards: (m['awards'] as List?)?.cast<String>() ?? const [],
       );
 }

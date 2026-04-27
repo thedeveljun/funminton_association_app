@@ -18,7 +18,7 @@ class FilterChipRow extends StatelessWidget {
   Widget build(BuildContext context) => Container(
         color: Colors.white,
         padding:
-            padding ?? const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+            padding ?? const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
         alignment: Alignment.centerLeft,
         child: SingleChildScrollView(
           scrollDirection: Axis.horizontal,
@@ -33,7 +33,7 @@ class FilterChipRow extends StatelessWidget {
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 150),
                     padding:
-                        const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                        const EdgeInsets.symmetric(horizontal: 11, vertical: 4),
                     decoration: BoxDecoration(
                       color: isOn
                           ? const Color(0xFF2563EB)
