@@ -1,4 +1,5 @@
 /// 클럽의 협회 납부 현황 상태
+/// (협회비·당해년도 분담금 합계·이사회비를 종합한 라벨)
 enum ClubPayStatus {
   fullyPaid, // 완납 — 협회비·분담금·이사회비 모두 납부
   partialPaid, // 일부납부 — 일부만 납부
@@ -8,7 +9,7 @@ enum ClubPayStatus {
 class Club {
   final String id;
   final String name;
-  final String memberType; // '정회원' | '준회원'
+  final String region; // 소속 시·구 (예: '과천시', '서초구')
   final String presidentName;
   final String presidentPhone;
   final String secretaryName;
@@ -18,7 +19,7 @@ class Club {
   final String practiceDay;
   final String practiceTime;
   final int memberCount;
-  final ClubPayStatus payStatus; // 납부 현황 (완납/일부납부/미납)
+  final ClubPayStatus payStatus; // 수동 라벨 (관리자 표시용)
   final String status;
   final int countA;
   final int countB;
@@ -26,15 +27,15 @@ class Club {
   final int countD;
   final int countBeginner;
 
-  // 납부 항목별 상태
-  final bool assocFeePaid; // 협회비 납부 여부
-  final bool sharePaid; // 클럽 분담금 납부 여부
+  // ── 납부 항목별 상태 (당해년도 기준) ─────────────────
+  final bool assocFeePaid; // 협회비 납부 여부 (정기 회비)
+  final bool sharePaid; // 당해년도 모든 대회 분담금 완납 여부 (캐시 — 실제 분담금은 대회별로 별도 관리)
   final bool boardFeePaid; // 이사회비 납부 여부 (회장·총무)
 
   const Club({
     required this.id,
     required this.name,
-    this.memberType = '정회원',
+    this.region = '',
     this.presidentName = '',
     this.presidentPhone = '',
     this.secretaryName = '',
@@ -56,8 +57,18 @@ class Club {
     this.boardFeePaid = false,
   });
 
-  /// 완납 여부 (기존 feePaid 대체)
+  /// 완납 여부 (기존 feePaid 호환)
   bool get feePaid => payStatus == ClubPayStatus.fullyPaid;
+
+  /// 3개 납부 boolean으로 자동 산출한 납부 현황
+  /// (수동 `payStatus`와 비교하여 동기화 검증에 사용)
+  ClubPayStatus get computedPayStatus {
+    final paidCount =
+        (assocFeePaid ? 1 : 0) + (sharePaid ? 1 : 0) + (boardFeePaid ? 1 : 0);
+    if (paidCount == 3) return ClubPayStatus.fullyPaid;
+    if (paidCount == 0) return ClubPayStatus.unpaid;
+    return ClubPayStatus.partialPaid;
+  }
 
   /// 납부 현황 라벨
   String get payStatusLabel {
@@ -87,10 +98,59 @@ class Club {
 
   String get initials => name.length >= 2 ? name.substring(0, 2) : name;
 
+  /// 부분 업데이트용
+  Club copyWith({
+    String? name,
+    String? region,
+    String? presidentName,
+    String? presidentPhone,
+    String? secretaryName,
+    String? secretaryPhone,
+    String? venue,
+    String? foundedAt,
+    String? practiceDay,
+    String? practiceTime,
+    int? memberCount,
+    ClubPayStatus? payStatus,
+    String? status,
+    int? countA,
+    int? countB,
+    int? countC,
+    int? countD,
+    int? countBeginner,
+    bool? assocFeePaid,
+    bool? sharePaid,
+    bool? boardFeePaid,
+  }) =>
+      Club(
+        id: id,
+        name: name ?? this.name,
+        region: region ?? this.region,
+        presidentName: presidentName ?? this.presidentName,
+        presidentPhone: presidentPhone ?? this.presidentPhone,
+        secretaryName: secretaryName ?? this.secretaryName,
+        secretaryPhone: secretaryPhone ?? this.secretaryPhone,
+        venue: venue ?? this.venue,
+        foundedAt: foundedAt ?? this.foundedAt,
+        practiceDay: practiceDay ?? this.practiceDay,
+        practiceTime: practiceTime ?? this.practiceTime,
+        memberCount: memberCount ?? this.memberCount,
+        payStatus: payStatus ?? this.payStatus,
+        status: status ?? this.status,
+        countA: countA ?? this.countA,
+        countB: countB ?? this.countB,
+        countC: countC ?? this.countC,
+        countD: countD ?? this.countD,
+        countBeginner: countBeginner ?? this.countBeginner,
+        assocFeePaid: assocFeePaid ?? this.assocFeePaid,
+        sharePaid: sharePaid ?? this.sharePaid,
+        boardFeePaid: boardFeePaid ?? this.boardFeePaid,
+      );
+
   Map<String, dynamic> toMap() => {
         'id': id,
         'name': name,
-        'member_type': memberType,
+        'region': region,
         'president_name': presidentName,
         'president_phone': presidentPhone,
         'secretary_name': secretaryName,
@@ -115,7 +175,7 @@ class Club {
   factory Club.fromMap(Map<String, dynamic> m) => Club(
         id: m['id'] ?? '',
         name: m['name'] ?? '',
-        memberType: m['member_type'] ?? '정회원',
+        region: m['region'] ?? '',
         presidentName: m['president_name'] ?? '',
         presidentPhone: m['president_phone'] ?? '',
         secretaryName: m['secretary_name'] ?? '',

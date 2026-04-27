@@ -92,7 +92,6 @@ class _ClubFormScreenState extends State<ClubFormScreen> {
       venue: _venueCtrl.text.trim(),
       practiceDay: _dayCtrl.text.trim(),
       practiceTime: _timeCtrl.text.trim(),
-      memberType: widget.initial?.memberType ?? '정회원',
       memberCount: widget.initial?.memberCount ?? 0,
       payStatus: widget.initial?.payStatus ?? ClubPayStatus.unpaid,
       status: widget.initial?.status ?? '활성',
