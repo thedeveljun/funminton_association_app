@@ -192,8 +192,8 @@ class _ClubFormScreenState extends State<ClubFormScreen> {
         children: [
           Text(label,
               style: const TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w600,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
                   color: AppColors.text2)),
           const SizedBox(height: 4),
           TextField(

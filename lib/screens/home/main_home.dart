@@ -467,11 +467,15 @@ class _MenuCard extends StatelessWidget {
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: const Color(0xFFC7D5F0),
+              width: 1.8,
+            ),
             boxShadow: const [
               BoxShadow(
-                color: Color(0x10000000),
-                blurRadius: 10,
-                offset: Offset(0, 3),
+                color: Color(0x08000000),
+                blurRadius: 6,
+                offset: Offset(0, 2),
               ),
             ],
           ),
@@ -554,11 +558,15 @@ class _WideCard extends StatelessWidget {
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: const Color(0xFFC7D5F0),
+              width: 1.8,
+            ),
             boxShadow: const [
               BoxShadow(
-                color: Color(0x10000000),
-                blurRadius: 10,
-                offset: Offset(0, 3),
+                color: Color(0x08000000),
+                blurRadius: 6,
+                offset: Offset(0, 2),
               ),
             ],
           ),

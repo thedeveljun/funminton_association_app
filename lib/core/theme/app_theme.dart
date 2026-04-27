@@ -22,6 +22,8 @@ class AppTheme {
           foregroundColor: AppColors.text,
           elevation: 0,
           centerTitle: false,
+          titleSpacing: -4,
+          leadingWidth: 34,
           scrolledUnderElevation: 1,
           shadowColor: Color(0x18000000),
           systemOverlayStyle: SystemUiOverlayStyle(
@@ -30,12 +32,12 @@ class AppTheme {
           ),
           titleTextStyle: TextStyle(
             fontFamily: 'NotoSansKR',
-            fontSize: 17,
-            fontWeight: FontWeight.w800,
-            color: AppColors.text,
+            fontSize: 19,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF0D1B3E),
             letterSpacing: -0.3,
           ),
-          iconTheme: IconThemeData(color: AppColors.text2, size: 22),
+          iconTheme: IconThemeData(color: Color(0xFF0D1B3E), size: 20),
         ),
 
         // ── Card ────────────────────────────────

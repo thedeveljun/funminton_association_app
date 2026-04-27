@@ -2,9 +2,41 @@ import '../models/club.dart';
 import '../models/player.dart';
 import '../models/tournament.dart';
 import '../models/finance_transaction.dart';
+import 'storage_service.dart';
 
 class SampleData {
   SampleData._();
+
+  // ─── 영구 저장 로직 ─────────────────────────
+  static Future<void> loadFromStorage() async {
+    final savedClubs = await StorageService.loadClubs();
+    if (savedClubs != null && savedClubs.isNotEmpty) {
+      clubs.clear();
+      clubs.addAll(savedClubs);
+      print('✅ 저장된 클럽 ${savedClubs.length}개 로드됨');
+    }
+
+    final savedPlayers = await StorageService.loadPlayers();
+    if (savedPlayers != null && savedPlayers.isNotEmpty) {
+      players.clear();
+      players.addAll(savedPlayers);
+      print('✅ 저장된 선수 ${savedPlayers.length}명 로드됨');
+    }
+
+    final savedTournaments = await StorageService.loadTournaments();
+    if (savedTournaments != null && savedTournaments.isNotEmpty) {
+      tournaments.clear();
+      tournaments.addAll(savedTournaments);
+      print('✅ 저장된 대회 ${savedTournaments.length}개 로드됨');
+    }
+  }
+
+  static Future<void> saveClubs() => StorageService.saveClubs(clubs);
+  static Future<void> savePlayers() => StorageService.savePlayers(players);
+  static Future<void> saveTournaments() =>
+      StorageService.saveTournaments(tournaments);
+
+  // ── 클럽 ────────────────────────────────
 
   // ── 클럽 ────────────────────────────────
   static final List<Club> clubs = [

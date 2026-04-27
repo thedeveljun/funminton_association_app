@@ -74,9 +74,15 @@ class _ClubListScreenState extends State<ClubListScreen> {
     );
     if (updated != null) {
       setState(() {
+        // 로컬 리스트 업데이트
         final idx = _clubs.indexWhere((c) => c.id == club.id);
         if (idx >= 0) _clubs[idx] = updated;
+        // SampleData에도 반영
+        final sIdx = SampleData.clubs.indexWhere((c) => c.id == club.id);
+        if (sIdx >= 0) SampleData.clubs[sIdx] = updated;
       });
+      // 영구 저장 (휴대폰 저장소에 기록)
+      await SampleData.saveClubs();
     }
   }
 
@@ -106,8 +112,10 @@ class _ClubListScreenState extends State<ClubListScreen> {
     if (ok == true) {
       setState(() {
         _clubs.removeWhere((c) => c.id == club.id);
+        SampleData.clubs.removeWhere((c) => c.id == club.id);
         _expanded.remove(club.id);
       });
+      await SampleData.saveClubs();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('\'${club.name}\'이(가) 삭제되었습니다.')),
@@ -179,6 +187,7 @@ class _ClubListScreenState extends State<ClubListScreen> {
               );
               if (result == true) {
                 setState(() => _clubs = List.from(SampleData.clubs));
+                await SampleData.saveClubs();
               }
             },
             icon: const Icon(Icons.upload_file_rounded, color: _primary),
@@ -191,7 +200,13 @@ class _ClubListScreenState extends State<ClubListScreen> {
                 context,
                 MaterialPageRoute(builder: (_) => const ClubFormScreen()),
               );
-              if (result != null) setState(() => _clubs.add(result));
+              if (result != null) {
+                setState(() {
+                  _clubs.add(result);
+                  SampleData.clubs.add(result);
+                });
+                await SampleData.saveClubs();
+              }
             },
             icon: const Icon(Icons.add_rounded, size: 20, color: _primary),
             label: const Text('등록',
@@ -414,8 +429,8 @@ class _ClubListScreenState extends State<ClubListScreen> {
                           '총 ${SampleData.players.where((p) => p.clubId == club.id).length}명',
                           style: const TextStyle(
                             fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                            color: _primary,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF0F2557),
                             letterSpacing: -0.3,
                           )),
                       const SizedBox(width: 2),
