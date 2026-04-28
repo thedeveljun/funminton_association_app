@@ -2,12 +2,15 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+
+import '../../core/constants/app_config.dart';
 import '../../models/club.dart';
 import '../../models/finance_transaction.dart';
 import '../../models/tournament.dart';
 import '../../models/club_share.dart';
 import '../../models/donation.dart';
-import '../../models/association_fee_payment.dart';
+import '../../models/player.dart';
+import '../../models/player_fee_payment.dart';
 import '../../services/sample_data.dart';
 import 'tournament_finance_screen.dart';
 
@@ -83,6 +86,27 @@ String _toKoreanFull(int amount) {
   return '${result}원';
 }
 
+/// 거래 ID에서 시간 추출 (예: 'tx_pfp_1714276823456789' → '14:32')
+/// microsecondsSinceEpoch 기반 ID에서만 동작. 추출 실패 시 빈 문자열 반환.
+String _extractTimeFromId(String id) {
+  // ID에 들어있는 마지막 숫자 시퀀스 찾기 (>= 13자리 = 밀리초 이상)
+  final match = RegExp(r'(\d{13,})').firstMatch(id);
+  if (match == null) return '';
+  final num = int.tryParse(match.group(1)!);
+  if (num == null) return '';
+  try {
+    // microsecondsSinceEpoch (16자리 정도) 또는 millisecondsSinceEpoch (13자리)
+    final dt = match.group(1)!.length >= 16
+        ? DateTime.fromMicrosecondsSinceEpoch(num)
+        : DateTime.fromMillisecondsSinceEpoch(num);
+    final hh = dt.hour.toString().padLeft(2, '0');
+    final mm = dt.minute.toString().padLeft(2, '0');
+    return '$hh:$mm';
+  } catch (_) {
+    return '';
+  }
+}
+
 class FinanceScreen extends StatefulWidget {
   const FinanceScreen({super.key});
 
@@ -96,7 +120,10 @@ class _FinanceScreenState extends State<FinanceScreen>
   String _summaryPeriod = '전체';
   late DateTime _rangeStart;
   late DateTime _rangeEnd;
-  late List<FinanceTransaction> _transactions;
+
+  /// SampleData.transactions를 직접 참조하는 게터.
+  /// → 모든 추가/수정/삭제가 즉시 영구 반영되어 화면 전환 후에도 유지됨
+  List<FinanceTransaction> get _transactions => SampleData.transactions;
 
   @override
   void initState() {
@@ -105,7 +132,6 @@ class _FinanceScreenState extends State<FinanceScreen>
     final now = DateTime.now();
     _rangeStart = DateTime(now.year, 1, 1);
     _rangeEnd = now;
-    _transactions = List<FinanceTransaction>.from(SampleData.transactions);
   }
 
   @override
@@ -148,28 +174,6 @@ class _FinanceScreenState extends State<FinanceScreen>
     );
   }
 
-  Future<void> _showFeePaymentForm(Club club) async {
-    await showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => _FeePaymentFormDialog(
-        club: club,
-        onSnack: _snack,
-        onSave: (payment, transaction) {
-          setState(() {
-            SampleData.feePayments.add(payment);
-            _transactions.add(transaction);
-          });
-          _snack('납부 내역이 추가되었습니다.');
-        },
-      ),
-    );
-    // 폼 닫힌 뒤 시트를 다시 열어서 새 납부 확인
-    if (mounted) {
-      await _showFeeDialog(club);
-    }
-  }
-
   Future<void> _showFeeDialog(Club club) async {
     await showModalBottomSheet<void>(
       context: context,
@@ -180,18 +184,59 @@ class _FinanceScreenState extends State<FinanceScreen>
       ),
       builder: (_) => _FeePaymentSheet(
         club: club,
-        onAdd: () async {
-          Navigator.pop(context); // 시트 먼저 닫기
-          await _showFeePaymentForm(club);
-        },
-        onDelete: (payment) {
-          if (payment.txId != null) {
-            _transactions.removeWhere((t) => t.id == payment.txId);
-          }
-          SampleData.feePayments.removeWhere((p) => p.id == payment.id);
+        onPay: (player) {
+          // 선수 1명 납부 처리: PlayerFeePayment + FinanceTransaction 동시 생성
+          final ts = DateTime.now().microsecondsSinceEpoch;
+          final paymentId = 'pfp_$ts';
+          final txId = 'tx_$paymentId';
+          final today =
+              '${DateTime.now().year.toString().padLeft(4, '0')}-${DateTime.now().month.toString().padLeft(2, '0')}-${DateTime.now().day.toString().padLeft(2, '0')}';
+          final memo = '${DateTime.now().year}년 협회비';
+
+          final payment = PlayerFeePayment(
+            id: paymentId,
+            playerId: player.id,
+            playerName: player.name,
+            clubId: player.clubId,
+            clubName: player.clubName,
+            year: DateTime.now().year,
+            amount: AppConfig.playerFeeUnit,
+            date: today,
+            txId: txId,
+            memo: memo,
+          );
+
+          final tx = FinanceTransaction(
+            id: txId,
+            title: '${player.clubName} - ${player.name}',
+            amount: AppConfig.playerFeeUnit,
+            isIncome: true,
+            category: '협회비',
+            date: today,
+            clubId: player.clubId,
+            clubName: player.clubName,
+            memo: memo,
+          );
+
+          SampleData.playerFeePayments.add(payment);
+          _transactions.add(tx);
           setState(() {});
         },
-        onChanged: () => setState(() {}),
+        onCancel: (player) {
+          // 선수 납부 취소: 해당 선수의 올해 납부 + 연결 거래 삭제
+          final yr = DateTime.now().year;
+          final removed = SampleData.playerFeePayments
+              .where((p) => p.playerId == player.id && p.year == yr)
+              .toList();
+          for (final p in removed) {
+            if (p.txId != null) {
+              _transactions.removeWhere((t) => t.id == p.txId);
+            }
+          }
+          SampleData.playerFeePayments
+              .removeWhere((p) => p.playerId == player.id && p.year == yr);
+          setState(() {});
+        },
       ),
     );
   }
@@ -273,7 +318,7 @@ class _FinanceScreenState extends State<FinanceScreen>
 }
 
 // ══════════════════════════════════════════════
-// 탭1: 협회비 납부
+// 탭1: 협회비 납부 (선수별 체크 시스템)
 // ══════════════════════════════════════════════
 class _FeeTab extends StatelessWidget {
   final void Function(Club) onRowTap;
@@ -282,21 +327,48 @@ class _FeeTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final clubs = SampleData.clubs;
-    final payments = SampleData.feePayments;
+    final payments = SampleData.playerFeePayments;
+    final allPlayers = SampleData.players;
 
+    // 클럽별 회원수 집계 (Player 모델의 clubId 기준)
+    final clubMemberCounts = <String, int>{};
+    for (final p in allPlayers) {
+      clubMemberCounts[p.clubId] = (clubMemberCounts[p.clubId] ?? 0) + 1;
+    }
+
+    // 클럽별 협회비 납부 현황
     final summaries = {
-      for (final c in clubs) c.id: ClubFeeSummary.from(c.id, c.name, payments),
+      for (final c in clubs)
+        c.id: ClubFeeSummary.from(
+          clubId: c.id,
+          clubName: c.name,
+          totalPlayers: clubMemberCounts[c.id] ?? c.memberCount,
+          allPayments: payments,
+        ),
     };
 
-    int paid = 0;
-    int paidTotal = 0;
+    // 상단 배너 통계
+    int fullyPaidClubs = 0;
+    int partiallyPaidClubs = 0;
+    int unpaidClubs = 0;
+    int totalPaidAmount = 0;
+    int totalPlayers = 0;
+    int totalPaidPlayers = 0;
+
     for (final c in clubs) {
       final s = summaries[c.id]!;
-      if (s.hasRegularPaid) paid++;
-      paidTotal += s.totalPaid;
+      totalPlayers += s.totalPlayers;
+      totalPaidPlayers += s.paidPlayers;
+      totalPaidAmount += s.totalPaid;
+
+      if (s.isFullyPaid) {
+        fullyPaidClubs++;
+      } else if (s.isPartiallyPaid) {
+        partiallyPaidClubs++;
+      } else {
+        unpaidClubs++;
+      }
     }
-    final unpaid = clubs.length - paid;
-    final unpaidEstimate = unpaid * 300000;
 
     return Column(children: [
       Container(
@@ -306,11 +378,19 @@ class _FeeTab extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(children: [
-              _StatusChip(label: '납부', count: paid, color: _statusPaidColor),
+              _StatusChip(
+                  label: '완납', count: fullyPaidClubs, color: _statusPaidColor),
+              const SizedBox(width: 6),
+              _StatusChip(
+                label: '일부',
+                count: partiallyPaidClubs,
+                color: const Color(0xFFFFB347),
+                bgColor: const Color(0x33FFB347),
+              ),
               const SizedBox(width: 6),
               _StatusChip(
                 label: '미납',
-                count: unpaid,
+                count: unpaidClubs,
                 color: _statusUnpaidColor,
                 bgColor: const Color(0x33AAAAAA),
               ),
@@ -322,12 +402,16 @@ class _FeeTab extends StatelessWidget {
             Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Expanded(
                   child: _AmountSummaryBlock(
-                      label: '납부총액', amount: paidTotal, color: _amountYellow)),
+                      label: '납부 인원',
+                      amount: totalPaidPlayers,
+                      color: _amountYellow,
+                      suffix: ' / $totalPlayers명',
+                      showWon: false)),
               const SizedBox(width: 16),
               Expanded(
                   child: _AmountSummaryBlock(
-                      label: '미납 추정액',
-                      amount: unpaidEstimate,
+                      label: '납부 총액',
+                      amount: totalPaidAmount,
                       color: const Color.fromARGB(255, 247, 248, 248))),
             ]),
           ],
@@ -365,21 +449,47 @@ class _FeeClubRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasPaid = summary.hasRegularPaid;
+    final isFully = summary.isFullyPaid;
+    final isPartial = summary.isPartiallyPaid;
+    final isUnpaid = summary.isUnpaid;
+
+    // 상태별 색상
+    final Color cardBg;
+    final Color borderColor;
+    final Color badgeBg;
+    final Color badgeFg;
+    final String badgeLabel;
+
+    if (isFully) {
+      cardBg = Colors.white;
+      borderColor = const Color(0xFFD5DAE1);
+      badgeBg = const Color(0xFFE8F5EE);
+      badgeFg = _incomeIcon;
+      badgeLabel = '완납';
+    } else if (isPartial) {
+      cardBg = const Color(0xFFFFFBF0);
+      borderColor = const Color(0xFFFFD89A);
+      badgeBg = const Color(0xFFFFF1D6);
+      badgeFg = const Color(0xFFB7791F);
+      badgeLabel = '일부';
+    } else {
+      cardBg = const Color(0xFFFFFAFA);
+      borderColor = const Color(0xFFE8A0A0);
+      badgeBg = const Color(0xFFFFEBEB);
+      badgeFg = _expenseIcon;
+      badgeLabel = '미납';
+    }
 
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: Container(
-        margin: const EdgeInsets.only(bottom: 6),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        margin: const EdgeInsets.only(bottom: 2),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         decoration: BoxDecoration(
-          color: hasPaid ? Colors.white : const Color(0xFFFFFAFA),
+          color: cardBg,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-              color:
-                  hasPaid ? const Color(0xFFD5DAE1) : const Color(0xFFE8A0A0),
-              width: 1.2),
+          border: Border.all(color: borderColor, width: 1.2),
           boxShadow: const [
             BoxShadow(
                 color: Color(0x06000000), blurRadius: 2, offset: Offset(0, 1)),
@@ -389,16 +499,15 @@ class _FeeClubRow extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(
-              color:
-                  hasPaid ? const Color(0xFFE8F5EE) : const Color(0xFFFFEBEB),
+              color: badgeBg,
               borderRadius: BorderRadius.circular(7),
             ),
             child: Text(
-              hasPaid ? '납부' : '미납',
+              badgeLabel,
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.w800,
-                color: hasPaid ? _incomeIcon : _expenseIcon,
+                color: badgeFg,
                 letterSpacing: -0.2,
               ),
             ),
@@ -407,56 +516,61 @@ class _FeeClubRow extends StatelessWidget {
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Row(children: [
-                  Flexible(
-                    child: Text(club.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          color: _ink,
-                          letterSpacing: -0.3,
-                        )),
+                Text(club.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: _ink,
+                      letterSpacing: -0.3,
+                      height: 1.1,
+                    )),
+                if (_subtitleText().isNotEmpty) ...[
+                  const SizedBox(height: 1),
+                  Text(
+                    _subtitleText(),
+                    style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: Color(0xFF555555),
+                        height: 1.1),
                   ),
-                  if (summary.additionalCount > 0) ...[
-                    const SizedBox(width: 6),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 1),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFEAF2FF),
-                        borderRadius: BorderRadius.circular(5),
-                      ),
-                      child: Text(
-                        '+${summary.additionalCount}',
-                        style: const TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w800,
-                          color: Color(0xFF2563EB),
-                        ),
-                      ),
-                    ),
-                  ],
-                ]),
-                const SizedBox(height: 2),
-                Text(
-                  _subtitleText(),
-                  style:
-                      const TextStyle(fontSize: 12, color: Color(0xFF666666)),
-                ),
+                ],
               ],
             ),
           ),
-          Text(
-            hasPaid ? _fmtAmt(summary.totalPaid) : '-',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w800,
-              color: hasPaid ? _incomeFg : const Color(0xFFAAAAAA),
-              letterSpacing: -0.3,
-            ),
+          // 우측 인원/금액
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '${summary.paidPlayers}/${summary.totalPlayers}명',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                  color: isUnpaid ? const Color(0xFF888888) : _ink,
+                  letterSpacing: -0.3,
+                  height: 1.1,
+                ),
+              ),
+              if (!isUnpaid) ...[
+                const SizedBox(height: 1),
+                Text(
+                  _fmtAmt(summary.totalPaid),
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: _incomeFg,
+                    letterSpacing: -0.3,
+                    height: 1.1,
+                  ),
+                ),
+              ],
+            ],
           ),
           const SizedBox(width: 4),
           const Icon(Icons.chevron_right_rounded,
@@ -470,375 +584,17 @@ class _FeeClubRow extends StatelessWidget {
     final parts = <String>[];
     if (club.region.isNotEmpty) {
       parts.add(club.region);
-    } else if (club.memberCount > 0) {
-      parts.add('${club.memberCount}명');
     }
-    if (summary.paymentCount > 0) {
-      parts.add('${summary.paymentCount}건 납부');
-    }
-    if (summary.lastPaidDate != null) {
-      parts.add(summary.lastPaidDate!);
+    if (summary.isPartiallyPaid) {
+      final pct = (summary.ratio * 100).toStringAsFixed(0);
+      parts.add('$pct% 진행');
     }
     return parts.join(' · ');
   }
 }
 
 // ══════════════════════════════════════════════
-// 협회비 납부 추가 폼
-// ══════════════════════════════════════════════
-class _FeePaymentFormDialog extends StatefulWidget {
-  final Club club;
-  final void Function(AssociationFeePayment, FinanceTransaction) onSave;
-  final void Function(String) onSnack;
-
-  const _FeePaymentFormDialog({
-    required this.club,
-    required this.onSave,
-    required this.onSnack,
-  });
-
-  @override
-  State<_FeePaymentFormDialog> createState() => _FeePaymentFormDialogState();
-}
-
-class _FeePaymentFormDialogState extends State<_FeePaymentFormDialog> {
-  // 협회 정책 (추후 AppConfig 화면에서 변경 가능)
-  static const int _regularDefault = 300000;
-  static const int _newMemberPerHead = 15000;
-
-  FeeReason _reason = FeeReason.regular;
-  late final TextEditingController _amountCtrl;
-  late final TextEditingController _memberCtrl;
-  late final TextEditingController _memoCtrl;
-  late String _date;
-
-  @override
-  void initState() {
-    super.initState();
-    _amountCtrl =
-        TextEditingController(text: _formatThousands(_regularDefault));
-    _memberCtrl = TextEditingController();
-    _memoCtrl = TextEditingController();
-    _date = _todayStr();
-  }
-
-  @override
-  void dispose() {
-    _amountCtrl.dispose();
-    _memberCtrl.dispose();
-    _memoCtrl.dispose();
-    super.dispose();
-  }
-
-  String _formatThousands(int n) {
-    final s = n.toString();
-    final buf = StringBuffer();
-    for (int i = 0; i < s.length; i++) {
-      if (i > 0 && (s.length - i) % 3 == 0) buf.write(',');
-      buf.write(s[i]);
-    }
-    return buf.toString();
-  }
-
-  DateTime _parseDate(String s) {
-    try {
-      return DateTime.parse(s);
-    } catch (_) {
-      return DateTime.now();
-    }
-  }
-
-  void _onReasonChanged(FeeReason r) {
-    setState(() {
-      _reason = r;
-      // 사유에 따라 금액 기본값 조정
-      if (r == FeeReason.regular) {
-        _amountCtrl.text = _formatThousands(_regularDefault);
-        _memberCtrl.clear();
-      } else if (r == FeeReason.newMember) {
-        _memberCtrl.clear();
-        _amountCtrl.clear();
-      } else {
-        _memberCtrl.clear();
-        _amountCtrl.clear();
-      }
-    });
-  }
-
-  void _onMemberChanged(String v) {
-    if (_reason != FeeReason.newMember) return;
-    final n = int.tryParse(v.trim());
-    if (n != null && n > 0) {
-      _amountCtrl.text = _formatThousands(n * _newMemberPerHead);
-    } else {
-      _amountCtrl.clear();
-    }
-  }
-
-  void _save() {
-    final rawAmount = int.tryParse(
-            _amountCtrl.text.replaceAll(',', '').replaceAll('원', '').trim()) ??
-        0;
-    if (rawAmount <= 0) {
-      widget.onSnack('금액을 입력해주세요.');
-      return;
-    }
-
-    int memberDelta = 0;
-    if (_reason == FeeReason.newMember) {
-      final m = int.tryParse(_memberCtrl.text.trim()) ?? 0;
-      if (m <= 0) {
-        widget.onSnack('회원 수를 입력해주세요.');
-        return;
-      }
-      memberDelta = m;
-    }
-
-    // 환불은 음수로 저장
-    final signedAmount = _reason == FeeReason.refund ? -rawAmount : rawAmount;
-    final memo = _memoCtrl.text.trim().isEmpty
-        ? _defaultMemo(memberDelta)
-        : _memoCtrl.text.trim();
-
-    final ts = DateTime.now().microsecondsSinceEpoch;
-    final paymentId = 'fp_$ts';
-    final txId = 'tx_fp_$ts';
-
-    final payment = AssociationFeePayment(
-      id: paymentId,
-      clubId: widget.club.id,
-      clubName: widget.club.name,
-      amount: signedAmount,
-      reason: _reason,
-      memberDelta: memberDelta == 0 ? null : memberDelta,
-      date: _date,
-      txId: txId,
-      memo: memo,
-    );
-
-    final tx = FinanceTransaction(
-      id: txId,
-      title: '${widget.club.name} 협회비 (${_reason.label})',
-      amount: rawAmount,
-      isIncome: _reason != FeeReason.refund,
-      category: '협회비',
-      date: _date,
-      clubId: widget.club.id,
-      clubName: widget.club.name,
-      memo: memo,
-    );
-
-    widget.onSave(payment, tx);
-    Navigator.pop(context);
-  }
-
-  String _defaultMemo(int delta) {
-    switch (_reason) {
-      case FeeReason.regular:
-        return '${DateTime.now().year}년 정기 협회비';
-      case FeeReason.newMember:
-        return '신규 회원 $delta명 가입';
-      case FeeReason.correction:
-        return '협회비 정정';
-      case FeeReason.refund:
-        return '협회비 환불';
-    }
-  }
-
-  Widget _reasonChip(FeeReason r) {
-    final selected = _reason == r;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => _onReasonChanged(r),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          height: 38,
-          margin: const EdgeInsets.symmetric(horizontal: 3),
-          decoration: BoxDecoration(
-            color: selected ? Color(r.bgColor) : const Color(0xFFF5F6F8),
-            borderRadius: BorderRadius.circular(9),
-            border: Border.all(
-              color: selected ? Color(r.fgColor) : const Color(0xFFE0E4EC),
-              width: selected ? 1.4 : 1,
-            ),
-          ),
-          alignment: Alignment.center,
-          child: Text(
-            r.label,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w800,
-              color: selected ? Color(r.fgColor) : const Color(0xFF888888),
-              letterSpacing: -0.2,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) => Dialog(
-        backgroundColor: Colors.white,
-        insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(18),
-          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text('납부 추가',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w800,
-                    color: _ink,
-                  )),
-              const SizedBox(height: 4),
-              Text(widget.club.name,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF666666),
-                  )),
-              const SizedBox(height: 14),
-              _DlgField(
-                label: '사유',
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 0),
-                  child: Row(
-                    children: [
-                      _reasonChip(FeeReason.regular),
-                      _reasonChip(FeeReason.newMember),
-                      _reasonChip(FeeReason.correction),
-                      _reasonChip(FeeReason.refund),
-                    ],
-                  ),
-                ),
-              ),
-              if (_reason == FeeReason.newMember)
-                _DlgField(
-                  label: '신규 회원 수',
-                  child: TextField(
-                    controller: _memberCtrl,
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [
-                      FilteringTextInputFormatter.allow(RegExp(r'[0-9]')),
-                    ],
-                    onChanged: _onMemberChanged,
-                    style: const TextStyle(
-                        fontSize: 14, fontWeight: FontWeight.w600),
-                    decoration: _financeInputDeco(
-                        '예: 10  (1인당 ${_formatThousands(_newMemberPerHead)}원)'),
-                  ),
-                ),
-              _DlgField(
-                label: _reason == FeeReason.newMember
-                    ? '금액 (자동 계산, 직접 수정 가능)'
-                    : '금액 (원)',
-                child: TextField(
-                  controller: _amountCtrl,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [
-                    FilteringTextInputFormatter.allow(RegExp(r'[0-9,]')),
-                    _ThousandsFormatter(),
-                  ],
-                  style: const TextStyle(
-                      fontSize: 14, fontWeight: FontWeight.w700),
-                  decoration: _financeInputDeco('예: 300,000'),
-                ),
-              ),
-              _DlgField(
-                label: '날짜',
-                child: GestureDetector(
-                  onTap: () async {
-                    final picked = await showDatePicker(
-                      context: context,
-                      initialDate: _parseDate(_date),
-                      firstDate: DateTime(2020),
-                      lastDate: DateTime(2030),
-                    );
-                    if (picked != null) {
-                      setState(() => _date =
-                          '${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}');
-                    }
-                  },
-                  child: Container(
-                    height: 40,
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: const Color(0xFFB8BEC9)),
-                    ),
-                    child: Row(children: [
-                      Text(_date,
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w400,
-                            color: _ink,
-                          )),
-                      const Spacer(),
-                      const Icon(Icons.calendar_today_outlined,
-                          size: 15, color: Color(0xFF888888)),
-                    ]),
-                  ),
-                ),
-              ),
-              _DlgField(
-                label: '메모 (선택)',
-                child: TextField(
-                  controller: _memoCtrl,
-                  style: const TextStyle(fontSize: 13),
-                  decoration: _financeInputDeco('비워두면 자동 메모 입력'),
-                ),
-              ),
-              const SizedBox(height: 4),
-              Row(children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.pop(context),
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: Color(0xFFB6BCC8)),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10)),
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                    ),
-                    child: const Text('취소',
-                        style: TextStyle(color: Color(0xFF555555))),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed: _save,
-                    style: ElevatedButton.styleFrom(
-                      elevation: 0,
-                      backgroundColor: _accent,
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10)),
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                    ),
-                    child: const Text('저장',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
-                        )),
-                  ),
-                ),
-              ]),
-            ],
-          ),
-        ),
-      );
-}
-
-// ══════════════════════════════════════════════
-// 탭2: 수입/지출
+// 탭2: 수입/지출 (협회비는 클럽+날짜로 그룹핑)
 // ══════════════════════════════════════════════
 class _IncomeExpenseTab extends StatelessWidget {
   final List<FinanceTransaction> transactions;
@@ -852,8 +608,86 @@ class _IncomeExpenseTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final sorted = List<FinanceTransaction>.from(transactions)
-      ..sort((a, b) => b.date.compareTo(a.date));
+    // ── 표시용 그룹핑 ──
+    // 협회비를 클럽별로 분리 후, 같은 클럽이라도 2분 이상 떨어진 거래는 별도 그룹으로 처리
+    // → 같은 날 여러 번 일괄 납부 시 각 회차가 분리되어 표시됨
+    const groupGapThresholdMs = 2 * 60 * 1000; // 2분
+
+    /// 거래 ID에서 microsecondsSinceEpoch 추출 (정렬용)
+    int extractTimestamp(String id) {
+      final match = RegExp(r'(\d{13,})').firstMatch(id);
+      if (match == null) return 0;
+      final raw = int.tryParse(match.group(1)!) ?? 0;
+      // 16자리 이상이면 microsecond, 아니면 millisecond
+      return match.group(1)!.length >= 16 ? raw ~/ 1000 : raw;
+    }
+
+    // 1. 협회비/기타 분리
+    final feesByClubDate = <String, List<FinanceTransaction>>{};
+    final others = <FinanceTransaction>[];
+    for (final t in transactions) {
+      // 협회비 카테고리이면서 수입(납부)인 거래만 그룹화 대상
+      // → 협회비 환불 등의 지출은 일반 거래로 표시
+      if (t.category == '협회비' &&
+          t.isIncome &&
+          t.clubId != null &&
+          t.clubId!.isNotEmpty) {
+        final key = '${t.clubId}__${t.date}';
+        feesByClubDate.putIfAbsent(key, () => []).add(t);
+      } else {
+        others.add(t);
+      }
+    }
+
+    // 2. 각 (클럽+날짜) 묶음 안에서 시간 간격이 5분 넘으면 분리
+    final feeBatches = <List<FinanceTransaction>>[];
+    for (final txs in feesByClubDate.values) {
+      // 시간 오름차순 정렬 후 그룹화
+      final sorted = [...txs]..sort(
+          (a, b) => extractTimestamp(a.id).compareTo(extractTimestamp(b.id)));
+      List<FinanceTransaction> currentBatch = [sorted.first];
+      int lastTs = extractTimestamp(sorted.first.id);
+      for (int i = 1; i < sorted.length; i++) {
+        final ts = extractTimestamp(sorted[i].id);
+        // 둘 다 timestamp가 있고 차이가 5분 이내 → 같은 배치
+        if (lastTs > 0 &&
+            ts > 0 &&
+            (ts - lastTs).abs() <= groupGapThresholdMs) {
+          currentBatch.add(sorted[i]);
+        } else {
+          feeBatches.add(currentBatch);
+          currentBatch = [sorted[i]];
+        }
+        lastTs = ts;
+      }
+      feeBatches.add(currentBatch);
+    }
+
+    // 3. 표시 항목으로 변환
+    final items = <_DisplayItem>[];
+    for (final t in others) {
+      items.add(_DisplayItem.single(t));
+    }
+    for (final batch in feeBatches) {
+      if (batch.length == 1) {
+        items.add(_DisplayItem.single(batch.first));
+      } else {
+        items.add(_DisplayItem.feeGroup(batch));
+      }
+    }
+    // 정렬: 1차 날짜 내림차순 → 2차 timestamp 내림차순 (ID 접두사 무관, 숫자만 비교)
+    items.sort((a, b) {
+      final dateCmp = b.date.compareTo(a.date);
+      if (dateCmp != 0) return dateCmp;
+      // 그룹의 가장 최신 timestamp 비교 (microsecondsSinceEpoch 기반)
+      final aMax = a.sourceTransactions
+          .map((t) => extractTimestamp(t.id))
+          .reduce((x, y) => x > y ? x : y);
+      final bMax = b.sourceTransactions
+          .map((t) => extractTimestamp(t.id))
+          .reduce((x, y) => x > y ? x : y);
+      return bMax.compareTo(aMax);
+    });
 
     final txIncome =
         transactions.where((t) => t.isIncome).fold(0, (s, t) => s + t.amount);
@@ -890,17 +724,24 @@ class _IncomeExpenseTab extends StatelessWidget {
         ]),
       ),
       Expanded(
-        child: sorted.isEmpty
+        child: items.isEmpty
             ? const Center(
                 child: Text('내역이 없습니다',
                     style: TextStyle(color: Color(0xFFAAAAAA))))
             : ListView.builder(
                 padding: const EdgeInsets.fromLTRB(14, 6, 14, 24),
-                itemCount: sorted.length,
-                itemBuilder: (_, i) => _TransactionRow(
-                  tx: sorted[i],
-                  onTap: () => onItemTap(sorted[i]),
-                ),
+                itemCount: items.length,
+                itemBuilder: (_, i) {
+                  final item = items[i];
+                  if (item.isGroup) {
+                    return _GroupedFeeRow(item: item);
+                  }
+                  final tx = item.sourceTransactions.first;
+                  return _TransactionRow(
+                    tx: tx,
+                    onTap: () => onItemTap(tx),
+                  );
+                },
               ),
       ),
     ]);
@@ -958,11 +799,11 @@ class _TransactionRow extends StatelessWidget {
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: Container(
-        margin: const EdgeInsets.only(bottom: 2),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        margin: const EdgeInsets.only(bottom: 1),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         decoration: BoxDecoration(
           color: cardBg,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(10),
           border: Border.all(color: cardBorder, width: 1.4),
           boxShadow: const [
             BoxShadow(
@@ -971,19 +812,19 @@ class _TransactionRow extends StatelessWidget {
         ),
         child: Row(children: [
           Container(
-            width: 36,
-            height: 36,
+            width: 32,
+            height: 32,
             decoration: BoxDecoration(
               color: iconBg,
-              borderRadius: BorderRadius.circular(9),
+              borderRadius: BorderRadius.circular(8),
             ),
             child: Icon(
               isIncome ? Icons.arrow_upward : Icons.arrow_downward,
-              size: 18,
+              size: 16,
               color: iconColor,
             ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 8),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1000,6 +841,7 @@ class _TransactionRow extends StatelessWidget {
                             fontWeight: FontWeight.w700,
                             color: _ink,
                             letterSpacing: -0.3,
+                            height: 1.1,
                           )),
                     ),
                     const SizedBox(width: 8),
@@ -1010,11 +852,12 @@ class _TransactionRow extends StatelessWidget {
                         fontWeight: FontWeight.w800,
                         color: amountColor,
                         letterSpacing: -0.3,
+                        height: 1.1,
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 2),
+                const SizedBox(height: 1),
                 Row(children: [
                   Text(tx.date,
                       style: const TextStyle(
@@ -1022,6 +865,15 @@ class _TransactionRow extends StatelessWidget {
                         color: Color(0xFF666666),
                         letterSpacing: -0.2,
                       )),
+                  if (_extractTimeFromId(tx.id).isNotEmpty) ...[
+                    const SizedBox(width: 4),
+                    Text(_extractTimeFromId(tx.id),
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Color(0xFF888888),
+                          fontWeight: FontWeight.w500,
+                        )),
+                  ],
                   if (tx.clubName != null) ...[
                     const Text(' · ',
                         style:
@@ -1043,9 +895,356 @@ class _TransactionRow extends StatelessWidget {
                     ),
                   ],
                 ]),
+                // 메모 표시 (있는 경우만)
+                if (tx.memo != null && tx.memo!.isNotEmpty) ...[
+                  const SizedBox(height: 1),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFF8E1),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.sticky_note_2_outlined,
+                            size: 11, color: Color(0xFFB7791F)),
+                        const SizedBox(width: 3),
+                        Flexible(
+                          child: Text(
+                            tx.memo!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: Color(0xFF8B6914),
+                              fontWeight: FontWeight.w500,
+                              letterSpacing: -0.2,
+                              height: 1.1,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
+        ]),
+      ),
+    );
+  }
+}
+
+// ── 수입/지출 표시용 항목 ────────────────────────
+class _DisplayItem {
+  final String date;
+  final List<FinanceTransaction> sourceTransactions;
+  final bool isGroup;
+
+  // 그룹 전용
+  final String? groupClubName;
+  final int? groupTotal;
+  final int? groupCount;
+
+  _DisplayItem._({
+    required this.date,
+    required this.sourceTransactions,
+    required this.isGroup,
+    this.groupClubName,
+    this.groupTotal,
+    this.groupCount,
+  });
+
+  factory _DisplayItem.single(FinanceTransaction tx) => _DisplayItem._(
+        date: tx.date,
+        sourceTransactions: [tx],
+        isGroup: false,
+      );
+
+  factory _DisplayItem.feeGroup(List<FinanceTransaction> txs) {
+    final first = txs.first;
+    final total = txs.fold<int>(0, (s, t) => s + t.amount);
+    return _DisplayItem._(
+      date: first.date,
+      sourceTransactions: txs,
+      isGroup: true,
+      groupClubName: first.clubName,
+      groupTotal: total,
+      groupCount: txs.length,
+    );
+  }
+}
+
+// ── 협회비 그룹 행 ──────────────────────────────
+class _GroupedFeeRow extends StatelessWidget {
+  final _DisplayItem item;
+  const _GroupedFeeRow({required this.item});
+
+  /// 거래 title("중앙 배드민턴 클럽 - 강건우")에서 선수 이름만 추출.
+  /// 과거 형식("... 협회비")도 호환 처리.
+  String _extractPlayerName(FinanceTransaction tx) {
+    final parts = tx.title.split(' - ');
+    if (parts.length >= 2) {
+      final last = parts.last;
+      if (last.endsWith(' 협회비')) {
+        return last.substring(0, last.length - ' 협회비'.length);
+      }
+      return last;
+    }
+    return tx.title;
+  }
+
+  /// ID 문자열에서 timestamp 추출 (정렬용, 접두사 무관)
+  int _extractTimestamp(String id) {
+    final match = RegExp(r'(\d{13,})').firstMatch(id);
+    if (match == null) return 0;
+    final raw = int.tryParse(match.group(1)!) ?? 0;
+    return match.group(1)!.length >= 16 ? raw ~/ 1000 : raw;
+  }
+
+  /// 그룹 내 가장 최근 거래의 시간 추출 (timestamp 기반)
+  String _groupLatestTime() {
+    if (item.sourceTransactions.isEmpty) return '';
+    // timestamp가 가장 큰 거래의 ID에서 시간 추출
+    final latest = item.sourceTransactions.reduce(
+        (a, b) => _extractTimestamp(a.id) > _extractTimestamp(b.id) ? a : b);
+    return _extractTimeFromId(latest.id);
+  }
+
+  void _showDetails(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) {
+        final txs = item.sourceTransactions;
+        final names = txs.map(_extractPlayerName).toList()..sort();
+        final maxHeight = MediaQuery.of(context).size.height * 0.7;
+        return ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: maxHeight),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 36,
+                height: 4,
+                margin: const EdgeInsets.only(top: 10, bottom: 12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE0E4EC),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(item.groupClubName ?? '',
+                        style: const TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                          color: _ink,
+                          letterSpacing: -0.4,
+                        )),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${item.date} · ${item.groupCount}명 납부 · ${_fmtAmt(item.groupTotal ?? 0)}',
+                      style: const TextStyle(fontSize: 12, color: _muted),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1, color: _cardBorderLight),
+              Flexible(
+                child: ListView.builder(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  itemCount: names.length,
+                  itemBuilder: (_, i) => Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+                    child: Row(children: [
+                      Container(
+                        width: 22,
+                        height: 22,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEEF1F6),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text('${i + 1}',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF555555),
+                            )),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(names[i],
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: _ink,
+                              letterSpacing: -0.3,
+                            )),
+                      ),
+                      Text(
+                        '+${_fmtAmt(AppConfig.playerFeeUnit).replaceAll('-', '')}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: _incomeFg,
+                        ),
+                      ),
+                    ]),
+                  ),
+                ),
+              ),
+              SizedBox(height: MediaQuery.of(context).padding.bottom + 12),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () => _showDetails(context),
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 1),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: _incomeBorder, width: 1.4),
+          boxShadow: const [
+            BoxShadow(
+                color: Color(0x06000000), blurRadius: 2, offset: Offset(0, 1)),
+          ],
+        ),
+        child: Row(children: [
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: _incomeBg,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child:
+                const Icon(Icons.groups_rounded, size: 18, color: _incomeIcon),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        item.groupClubName ?? '',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: _ink,
+                          letterSpacing: -0.3,
+                          height: 1.1,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      '+${_fmtAmt(item.groupTotal ?? 0).replaceAll('-', '')}',
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        color: _incomeFg,
+                        letterSpacing: -0.3,
+                        height: 1.1,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 1),
+                Row(children: [
+                  Text(item.date,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF666666),
+                        letterSpacing: -0.2,
+                      )),
+                  if (_groupLatestTime().isNotEmpty) ...[
+                    const SizedBox(width: 4),
+                    Text(_groupLatestTime(),
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Color(0xFF888888),
+                          fontWeight: FontWeight.w500,
+                        )),
+                  ],
+                  const Text(' · ',
+                      style: TextStyle(fontSize: 12, color: Color(0xFF666666))),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE8F5EE),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      '${item.groupCount}명 납부',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: _incomeFg,
+                      ),
+                    ),
+                  ),
+                ]),
+                // 메모: "{년도}년 협회비" 노란 배지
+                const SizedBox(height: 1),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF8E1),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.sticky_note_2_outlined,
+                          size: 11, color: Color(0xFFB7791F)),
+                      const SizedBox(width: 3),
+                      Text(
+                        '${DateTime.now().year}년 협회비',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Color(0xFF8B6914),
+                          fontWeight: FontWeight.w500,
+                          letterSpacing: -0.2,
+                          height: 1.1,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Icon(Icons.expand_more_rounded,
+              size: 18, color: Color(0xFFAAAAAA)),
         ]),
       ),
     );
@@ -1856,11 +2055,25 @@ class _AmountSummaryBlock extends StatelessWidget {
   final String label;
   final int amount;
   final Color color;
+  final String? suffix;
+  final bool showWon;
+
   const _AmountSummaryBlock({
     required this.label,
     required this.amount,
     required this.color,
+    this.suffix,
+    this.showWon = true,
   });
+
+  String _formatted() {
+    if (showWon) return _fmtAmt(amount);
+    final s = amount.abs().toString().replaceAllMapped(
+          RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+          (m) => '${m[1]},',
+        );
+    return amount < 0 ? '-$s' : s;
+  }
 
   @override
   Widget build(BuildContext context) => Column(
@@ -1878,7 +2091,7 @@ class _AmountSummaryBlock extends StatelessWidget {
           FittedBox(
             fit: BoxFit.scaleDown,
             alignment: Alignment.centerLeft,
-            child: Text(_fmtAmt(amount),
+            child: Text('${_formatted()}${suffix ?? ''}',
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.w800,
@@ -2262,19 +2475,17 @@ class _TransactionDialogState extends State<_TransactionDialog> {
 }
 
 // ══════════════════════════════════════════════
-// 협회비 납부 내역 시트
+// 협회비 선수별 납부 체크 시트 (가나다순 정렬)
 // ══════════════════════════════════════════════
 class _FeePaymentSheet extends StatefulWidget {
   final Club club;
-  final VoidCallback onAdd;
-  final void Function(AssociationFeePayment) onDelete;
-  final VoidCallback onChanged;
+  final void Function(Player) onPay;
+  final void Function(Player) onCancel;
 
   const _FeePaymentSheet({
     required this.club,
-    required this.onAdd,
-    required this.onDelete,
-    required this.onChanged,
+    required this.onPay,
+    required this.onCancel,
   });
 
   @override
@@ -2282,32 +2493,170 @@ class _FeePaymentSheet extends StatefulWidget {
 }
 
 class _FeePaymentSheetState extends State<_FeePaymentSheet> {
-  ClubFeeSummary get _summary => ClubFeeSummary.from(
-      widget.club.id, widget.club.name, SampleData.feePayments);
+  final TextEditingController _searchCtrl = TextEditingController();
+  String _query = '';
 
-  Future<void> _confirmDelete(AssociationFeePayment p) async {
+  /// 선택된 선수들의 ID Set (미납자 중에서만 선택 가능)
+  final Set<String> _selectedIds = {};
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  /// 클럽 소속 선수 리스트 (이름 가나다순 정렬)
+  List<Player> get _clubPlayers {
+    final list =
+        SampleData.players.where((p) => p.clubId == widget.club.id).toList();
+    list.sort((a, b) => a.name.compareTo(b.name));
+    return list;
+  }
+
+  /// 검색 필터링된 선수 리스트
+  List<Player> get _filteredPlayers {
+    if (_query.trim().isEmpty) return _clubPlayers;
+    final q = _query.trim().toLowerCase();
+    return _clubPlayers.where((p) {
+      return p.name.toLowerCase().contains(q) ||
+          p.gradeShort.toLowerCase().contains(q) ||
+          p.phone.contains(q);
+    }).toList();
+  }
+
+  /// 검색 결과 중 미납자 (선택 가능한 대상)
+  List<Player> get _filteredUnpaid =>
+      _filteredPlayers.where((p) => !_isPaid(p)).toList();
+
+  /// 전체 선택 상태:
+  /// - 검색 결과의 미납자 모두 선택됨 → true
+  /// - 일부만 선택됨 → null (indeterminate)
+  /// - 아무도 선택 안됨 → false
+  bool? get _selectAllState {
+    final unpaid = _filteredUnpaid;
+    if (unpaid.isEmpty) return false;
+    final selectedInView =
+        unpaid.where((p) => _selectedIds.contains(p.id)).length;
+    if (selectedInView == 0) return false;
+    if (selectedInView == unpaid.length) return true;
+    return null; // 일부 선택
+  }
+
+  /// 특정 선수의 올해 납부 여부
+  bool _isPaid(Player player) {
+    final yr = DateTime.now().year;
+    return SampleData.playerFeePayments
+        .any((p) => p.playerId == player.id && p.year == yr);
+  }
+
+  /// 클럽 전체 납부 현황 집계
+  ClubFeeSummary get _summary {
+    final players = _clubPlayers;
+    return ClubFeeSummary.from(
+      clubId: widget.club.id,
+      clubName: widget.club.name,
+      totalPlayers: players.length,
+      allPayments: SampleData.playerFeePayments,
+    );
+  }
+
+  /// 미납 선수 행 탭 → 선택 토글
+  void _toggleSelection(Player player) {
+    if (_isPaid(player)) return; // 이미 납부된 선수는 토글 안함
+    setState(() {
+      if (_selectedIds.contains(player.id)) {
+        _selectedIds.remove(player.id);
+      } else {
+        _selectedIds.add(player.id);
+      }
+    });
+  }
+
+  /// 전체 선택/해제 (검색 결과의 미납자 대상)
+  void _toggleSelectAll() {
+    final unpaid = _filteredUnpaid;
+    if (unpaid.isEmpty) return;
+    setState(() {
+      final state = _selectAllState;
+      if (state == true) {
+        // 전체 해제 (검색 결과의 미납자만)
+        for (final p in unpaid) {
+          _selectedIds.remove(p.id);
+        }
+      } else {
+        // 전체 선택 (검색 결과의 미납자만)
+        for (final p in unpaid) {
+          _selectedIds.add(p.id);
+        }
+      }
+    });
+  }
+
+  /// 선택 전체 해제 (검색 무관, 모두 해제)
+  void _clearAllSelection() {
+    setState(() => _selectedIds.clear());
+  }
+
+  /// 이미 납부된 선수 길게 눌러서 → 납부 취소
+  Future<void> _onLongPressPaidPlayer(Player player) async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('납부 내역 삭제',
+        title: const Text('납부 취소',
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              '${p.reason.label} · ${p.formattedAmount}',
+              '${player.name} (${player.gradeShort}조)',
               style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
             ),
-            const SizedBox(height: 4),
-            Text(p.date, style: const TextStyle(fontSize: 12, color: _muted)),
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
             const Text(
-              '이 납부 내역을 삭제하시겠습니까?\n(연결된 수입/지출 거래도 함께 삭제됩니다)',
-              style: TextStyle(fontSize: 13),
+              '납부를 취소하시겠습니까?\n(연결된 수입 거래도 함께 삭제됩니다)',
+              style: TextStyle(fontSize: 13, color: _ink),
             ),
           ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child:
+                const Text('아니오', style: TextStyle(color: Color(0xFF555555))),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('취소하기',
+                style:
+                    TextStyle(color: _expenseFg, fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      widget.onCancel(player);
+      if (mounted) setState(() {});
+    }
+  }
+
+  /// 선택된 선수들 일괄 납부 처리
+  Future<void> _payAllSelected() async {
+    final selectedPlayers =
+        _clubPlayers.where((p) => _selectedIds.contains(p.id)).toList();
+    if (selectedPlayers.isEmpty) return;
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('일괄 납부',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+        content: Text(
+          '선택된 선수 ${selectedPlayers.length}명을 납부 처리하시겠습니까?\n'
+          '총 ${_fmtAmt(selectedPlayers.length * AppConfig.playerFeeUnit)}',
+          style: const TextStyle(fontSize: 13),
         ),
         actions: [
           TextButton(
@@ -2316,24 +2665,30 @@ class _FeePaymentSheetState extends State<_FeePaymentSheet> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('삭제',
-                style:
-                    TextStyle(color: _expenseFg, fontWeight: FontWeight.w700)),
+            child: const Text('납부 처리',
+                style: TextStyle(color: _accent, fontWeight: FontWeight.w700)),
           ),
         ],
       ),
     );
     if (ok == true) {
-      widget.onDelete(p);
-      setState(() {});
-      widget.onChanged();
+      for (final p in selectedPlayers) {
+        widget.onPay(p);
+      }
+      if (mounted) {
+        setState(() => _selectedIds.clear());
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final s = _summary;
-    final maxHeight = MediaQuery.of(context).size.height * 0.75;
+    final filtered = _filteredPlayers;
+    final selectAll = _selectAllState;
+    final selectedCount = _selectedIds.length;
+    final selectedAmount = selectedCount * AppConfig.playerFeeUnit;
+    final maxHeight = MediaQuery.of(context).size.height * 0.88;
 
     return ConstrainedBox(
       constraints: BoxConstraints(maxHeight: maxHeight),
@@ -2344,6 +2699,7 @@ class _FeePaymentSheetState extends State<_FeePaymentSheet> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // 핸들
             Container(
               width: 36,
               height: 4,
@@ -2353,8 +2709,10 @@ class _FeePaymentSheetState extends State<_FeePaymentSheet> {
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
+
+            // ── 헤더 (납부인원 + 납부금액) ──
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -2367,102 +2725,368 @@ class _FeePaymentSheetState extends State<_FeePaymentSheet> {
                       letterSpacing: -0.4,
                     ),
                   ),
-                  const SizedBox(height: 6),
-                  Row(children: [
-                    if (s.totalPaid > 0)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFE8F5EE),
-                          borderRadius: BorderRadius.circular(7),
-                        ),
-                        child: Text(
-                          '누적 ${_fmtAmt(s.totalPaid)}',
-                          style: const TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w800,
-                            color: _incomeFg,
-                          ),
-                        ),
-                      )
-                    else
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFFEBEB),
-                          borderRadius: BorderRadius.circular(7),
-                        ),
-                        child: const Text(
-                          '미납',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w800,
-                            color: _expenseFg,
-                          ),
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 14),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [_bannerNavy, _bannerNavyAlt],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '납부 인원',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.white.withOpacity(0.75),
+                                letterSpacing: -0.2,
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            RichText(
+                              text: TextSpan(
+                                children: [
+                                  TextSpan(
+                                    text: '${s.paidPlayers}',
+                                    style: const TextStyle(
+                                      fontSize: 24,
+                                      fontWeight: FontWeight.w800,
+                                      color: _amountYellow,
+                                      letterSpacing: -0.5,
+                                    ),
+                                  ),
+                                  TextSpan(
+                                    text: ' / ${s.totalPlayers}명',
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.white.withOpacity(0.85),
+                                      letterSpacing: -0.3,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    if (s.paymentCount > 0) ...[
-                      const SizedBox(width: 8),
-                      Text(
-                        '${s.paymentCount}건 납부'
-                        '${s.additionalCount > 0 ? ' (정기 ${s.regularCount} · 추가 ${s.additionalCount})' : ''}',
-                        style: const TextStyle(fontSize: 12, color: _muted),
+                      Container(
+                        width: 1,
+                        height: 40,
+                        color: Colors.white.withOpacity(0.18),
                       ),
-                    ],
-                  ]),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '납부 금액',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.white.withOpacity(0.75),
+                                letterSpacing: -0.2,
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                _fmtAmt(s.totalPaid),
+                                style: const TextStyle(
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.white,
+                                  letterSpacing: -0.5,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ]),
+                  ),
                 ],
               ),
             ),
+
+            // ── 전체 선택 바 ⭐ NEW ──
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 6),
+              child: InkWell(
+                onTap: _toggleSelectAll,
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF5F7FA),
+                    borderRadius: BorderRadius.circular(8),
+                    border:
+                        Border.all(color: const Color(0xFFD5DAE1), width: 1),
+                  ),
+                  child: Row(children: [
+                    // 전체 선택 체크박스 (3-state)
+                    Container(
+                      width: 22,
+                      height: 22,
+                      decoration: BoxDecoration(
+                        color: selectAll == true
+                            ? _accent
+                            : (selectAll == null
+                                ? _accent.withOpacity(0.3)
+                                : Colors.white),
+                        borderRadius: BorderRadius.circular(5),
+                        border: Border.all(
+                          color: selectAll == false
+                              ? const Color(0xFFB8BEC9)
+                              : _accent,
+                          width: 1.6,
+                        ),
+                      ),
+                      child: selectAll == true
+                          ? const Icon(Icons.check,
+                              size: 15, color: Colors.white)
+                          : selectAll == null
+                              ? const Icon(Icons.remove,
+                                  size: 15, color: Colors.white)
+                              : null,
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      '전체 선택',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: selectAll == false
+                            ? const Color(0xFF555555)
+                            : _accent,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      '(미납자 ${_filteredUnpaid.length}명)',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF555555),
+                      ),
+                    ),
+                    const Spacer(),
+                    if (selectedCount > 0)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 9, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: _accent,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          '$selectedCount명 선택',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                  ]),
+                ),
+              ),
+            ),
+
+            // ── 검색창 ──
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
+              child: SizedBox(
+                height: 36,
+                child: TextField(
+                  controller: _searchCtrl,
+                  onChanged: (v) => setState(() => _query = v),
+                  style: const TextStyle(fontSize: 15, height: 1.0),
+                  decoration: InputDecoration(
+                    hintText: '선수 이름 검색',
+                    hintStyle: const TextStyle(
+                        fontSize: 14, color: Color(0xFFAAAAAA), height: 1.0),
+                    prefixIcon: const Icon(Icons.search,
+                        size: 18, color: Color(0xFF888888)),
+                    prefixIconConstraints:
+                        const BoxConstraints(minWidth: 32, minHeight: 32),
+                    suffixIcon: _query.isEmpty
+                        ? null
+                        : IconButton(
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(
+                                minWidth: 32, minHeight: 32),
+                            icon: const Icon(Icons.clear,
+                                size: 18, color: Color(0xFF888888)),
+                            onPressed: () {
+                              _searchCtrl.clear();
+                              setState(() => _query = '');
+                            },
+                          ),
+                    isDense: true,
+                    filled: true,
+                    fillColor: const Color(0xFFF5F6F8),
+                    contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: BorderSide.none,
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: BorderSide.none,
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: const BorderSide(color: _accent, width: 1.4),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
             const Divider(height: 1, color: _cardBorderLight),
+
+            // ── 선수 리스트 ──
             Flexible(
-              child: s.payments.isEmpty
-                  ? const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 32),
+              child: filtered.isEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 32),
                       child: Center(
                         child: Column(children: [
-                          Icon(Icons.receipt_long_outlined,
+                          const Icon(Icons.person_search_outlined,
                               size: 36, color: Color(0xFFCCCCCC)),
-                          SizedBox(height: 8),
-                          Text('납부 내역이 없습니다',
-                              style: TextStyle(fontSize: 13, color: _muted)),
-                          SizedBox(height: 4),
-                          Text('아래 버튼으로 첫 납부를 등록하세요',
-                              style: TextStyle(fontSize: 11, color: _muted)),
+                          const SizedBox(height: 8),
+                          Text(
+                            _query.isEmpty ? '소속 선수가 없습니다' : '검색 결과가 없습니다',
+                            style: const TextStyle(fontSize: 13, color: _muted),
+                          ),
                         ]),
                       ),
                     )
                   : ListView.builder(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      itemCount: s.payments.length,
-                      itemBuilder: (_, i) => _PaymentTile(
-                        payment: s.payments[i],
-                        onLongPress: () => _confirmDelete(s.payments[i]),
-                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      itemCount: filtered.length,
+                      itemBuilder: (_, i) {
+                        final p = filtered[i];
+                        final paid = _isPaid(p);
+                        return _PlayerCheckTile(
+                          player: p,
+                          paid: paid,
+                          selected: _selectedIds.contains(p.id),
+                          unitFee: AppConfig.playerFeeUnit,
+                          onTap: () => paid
+                              ? _onLongPressPaidPlayer(p)
+                              : _toggleSelection(p),
+                          onLongPress:
+                              paid ? () => _onLongPressPaidPlayer(p) : null,
+                        );
+                      },
                     ),
             ),
+
             const Divider(height: 1, color: _cardBorderLight),
+
+            // ── 하단 액션 영역 ⭐ 변경 ──
             Padding(
               padding: EdgeInsets.fromLTRB(
-                  20, 12, 20, 12 + MediaQuery.of(context).padding.bottom),
-              child: SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: widget.onAdd,
-                  icon: const Icon(Icons.add, size: 18),
-                  label: const Text('납부 추가'),
-                  style: ElevatedButton.styleFrom(
-                    elevation: 0,
-                    backgroundColor: _accent,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10)),
-                    textStyle: const TextStyle(
-                        fontSize: 14, fontWeight: FontWeight.w700),
-                  ),
-                ),
+                  20, 10, 20, 10 + MediaQuery.of(context).padding.bottom),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // 선택 정보
+                  if (selectedCount > 0)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            '선택 ${selectedCount}명',
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: _ink,
+                              letterSpacing: -0.3,
+                            ),
+                          ),
+                          Text(
+                            _fmtAmt(selectedAmount),
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w800,
+                              color: _incomeFg,
+                              letterSpacing: -0.3,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  // 버튼들
+                  Row(children: [
+                    // 선택 해제 버튼 (선택된 게 있을 때만 활성)
+                    Expanded(
+                      flex: 4,
+                      child: OutlinedButton.icon(
+                        onPressed:
+                            selectedCount > 0 ? _clearAllSelection : null,
+                        icon: const Icon(Icons.clear_rounded, size: 16),
+                        label: const Text('선택 해제'),
+                        style: OutlinedButton.styleFrom(
+                          side: BorderSide(
+                              color: selectedCount > 0
+                                  ? const Color(0xFFB6BCC8)
+                                  : const Color(0xFFE0E4EC)),
+                          foregroundColor: selectedCount > 0
+                              ? const Color(0xFF555555)
+                              : const Color(0xFFAAAAAA),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10)),
+                          textStyle: const TextStyle(
+                              fontSize: 13, fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    // 납부 처리 버튼
+                    Expanded(
+                      flex: 6,
+                      child: ElevatedButton.icon(
+                        onPressed: selectedCount > 0 ? _payAllSelected : null,
+                        icon: const Icon(Icons.check_circle_rounded, size: 18),
+                        label: Text(selectedCount > 0
+                            ? '${selectedCount}명 납부 처리'
+                            : '선수 선택 후 납부'),
+                        style: ElevatedButton.styleFrom(
+                          elevation: 0,
+                          backgroundColor: _accent,
+                          foregroundColor: Colors.white,
+                          disabledBackgroundColor: const Color(0xFFE0E4EC),
+                          disabledForegroundColor: const Color(0xFF888888),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10)),
+                          textStyle: const TextStyle(
+                              fontSize: 14, fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                    ),
+                  ]),
+                ],
               ),
             ),
           ],
@@ -2472,98 +3096,167 @@ class _FeePaymentSheetState extends State<_FeePaymentSheet> {
   }
 }
 
-class _PaymentTile extends StatelessWidget {
-  final AssociationFeePayment payment;
-  final VoidCallback onLongPress;
+/// 선수별 체크 행 (3가지 상태: 미납/선택중/납부완료)
+class _PlayerCheckTile extends StatelessWidget {
+  final Player player;
+  final bool paid;
+  final bool selected;
+  final int unitFee;
+  final VoidCallback onTap;
+  final VoidCallback? onLongPress;
 
-  const _PaymentTile({
-    required this.payment,
-    required this.onLongPress,
+  const _PlayerCheckTile({
+    required this.player,
+    required this.paid,
+    required this.selected,
+    required this.unitFee,
+    required this.onTap,
+    this.onLongPress,
   });
 
   @override
   Widget build(BuildContext context) {
-    final isRefund = payment.reason == FeeReason.refund;
-    final amountColor = isRefund ? _expenseFg : _incomeFg;
+    // 3가지 상태 색상
+    final Color tileBg;
+    final Color checkBg;
+    final Color checkBorder;
+    final IconData? checkIcon;
+
+    if (paid) {
+      // 납부 완료: 연한 초록
+      tileBg = const Color(0xFFF6FBF7);
+      checkBg = _incomeIcon;
+      checkBorder = _incomeIcon;
+      checkIcon = Icons.check;
+    } else if (selected) {
+      // 선택 중: 연한 파랑
+      tileBg = const Color(0xFFEFF5FB);
+      checkBg = _accent;
+      checkBorder = _accent;
+      checkIcon = Icons.check;
+    } else {
+      // 미납: 흰색
+      tileBg = Colors.transparent;
+      checkBg = Colors.white;
+      checkBorder = const Color(0xFFB8BEC9);
+      checkIcon = null;
+    }
 
     return InkWell(
+      onTap: onTap,
       onLongPress: onLongPress,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
+        color: tileBg,
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            // 체크박스
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              width: 24,
+              height: 24,
               decoration: BoxDecoration(
-                color: Color(payment.reason.bgColor),
-                borderRadius: BorderRadius.circular(7),
+                color: checkBg,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: checkBorder, width: 1.6),
               ),
-              child: Text(
-                payment.reason.label,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w800,
-                  color: Color(payment.reason.fgColor),
-                  letterSpacing: -0.2,
-                ),
-              ),
+              child: checkIcon != null
+                  ? Icon(checkIcon, size: 16, color: Colors.white)
+                  : null,
             ),
             const SizedBox(width: 10),
+            // 선수 정보
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      if (payment.memberDelta != null &&
-                          payment.memberDelta != 0)
-                        Text(
-                          payment.memberDeltaLabel,
-                          style: const TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFF2563EB),
-                          ),
-                        )
-                      else
-                        const SizedBox.shrink(),
-                      Text(
-                        payment.formattedAmount,
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w800,
-                          color: amountColor,
-                          letterSpacing: -0.3,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
                   Row(children: [
-                    Text(
-                      payment.date,
-                      style: const TextStyle(
-                          fontSize: 12, color: Color(0xFF666666)),
-                    ),
-                    if (payment.memo.isNotEmpty) ...[
-                      const Text(' · ',
-                          style: TextStyle(
-                              fontSize: 12, color: Color(0xFF666666))),
-                      Flexible(
-                        child: Text(
-                          payment.memo,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                              fontSize: 12, color: Color(0xFF666666)),
+                    Flexible(
+                      child: Text(
+                        player.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w700,
+                          color: paid ? const Color(0xFF555555) : _ink,
+                          letterSpacing: -0.3,
+                          height: 1.1,
                         ),
                       ),
-                    ],
+                    ),
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 1),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEEF1F6),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        player.gradeShort,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF555555),
+                          height: 1.1,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      player.gender,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: Color(0xFF666666),
+                        fontWeight: FontWeight.w600,
+                        height: 1.1,
+                      ),
+                    ),
                   ]),
+                  const SizedBox(height: 1),
+                  Text(
+                    player.regNumber,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFF666666),
+                      fontWeight: FontWeight.w500,
+                      height: 1.1,
+                    ),
+                  ),
                 ],
               ),
+            ),
+            // 우측 상태
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  paid ? '납부' : (selected ? '선택' : '미납'),
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    color: paid
+                        ? _incomeFg
+                        : (selected ? _accent : const Color(0xFF666666)),
+                    height: 1.1,
+                  ),
+                ),
+                const SizedBox(height: 1),
+                Text(
+                  paid || selected
+                      ? _fmtAmt(unitFee).replaceAll('-', '')
+                      : '${unitFee.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},')}원',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    color: paid
+                        ? _incomeFg
+                        : (selected ? _accent : const Color(0xFF555555)),
+                    height: 1.1,
+                  ),
+                ),
+              ],
             ),
           ],
         ),

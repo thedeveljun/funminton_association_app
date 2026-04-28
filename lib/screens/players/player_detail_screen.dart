@@ -4,6 +4,7 @@ import '../../models/player.dart';
 import '../../services/sample_data.dart';
 import '../../widgets/common/section_header.dart';
 import '../../widgets/common/app_badge.dart';
+import 'player_form_screen.dart';
 
 class PlayerDetailScreen extends StatefulWidget {
   final Player player;
@@ -15,15 +16,48 @@ class PlayerDetailScreen extends StatefulWidget {
 
 class _PlayerDetailScreenState extends State<PlayerDetailScreen> {
   late List<String> _awards;
+  late Player _player;
 
   @override
   void initState() {
     super.initState();
+    _player = widget.player;
     _awards = List<String>.from(widget.player.awards);
   }
 
+  Future<void> _editPlayer() async {
+    final updated = await Navigator.push<Player>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PlayerFormScreen(initial: _player),
+      ),
+    );
+    if (updated != null) {
+      // SampleData에 반영
+      final idx = SampleData.players.indexWhere((p) => p.id == _player.id);
+      if (idx >= 0) {
+        // 기존 awards 유지
+        SampleData.players[idx] = Player(
+          id: updated.id,
+          name: updated.name,
+          gender: updated.gender,
+          birthDate: updated.birthDate,
+          grade: updated.grade,
+          clubId: updated.clubId,
+          clubName: updated.clubName,
+          phone: updated.phone,
+          regNumber: updated.regNumber,
+          age: updated.age,
+          awards: _awards, // 현재 화면의 awards 유지
+        );
+        await SampleData.savePlayers();
+      }
+      setState(() => _player = SampleData.players[idx]);
+    }
+  }
+
   Future<void> _saveAwards() async {
-    final idx = SampleData.players.indexWhere((p) => p.id == widget.player.id);
+    final idx = SampleData.players.indexWhere((p) => p.id == _player.id);
     if (idx >= 0) {
       final old = SampleData.players[idx];
       SampleData.players[idx] = Player(
@@ -158,12 +192,12 @@ class _PlayerDetailScreenState extends State<PlayerDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final player = widget.player;
+    final player = _player;
     return Scaffold(
       backgroundColor: AppColors.gray,
-      appBar: AppBar(
-          title: const Text('선수 상세'),
-          actions: [TextButton(onPressed: () {}, child: const Text('편집'))]),
+      appBar: AppBar(title: const Text('선수 상세'), actions: [
+        TextButton(onPressed: _editPlayer, child: const Text('편집'))
+      ]),
       body: SingleChildScrollView(
         child: Column(children: [
           Container(

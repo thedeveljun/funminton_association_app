@@ -4,10 +4,13 @@ class AppConfig {
 
   // ── 협회비 정책 ─────────────────────────────
   /// 정기 협회비 기본 금액 (클럽당 연 1회)
-  static int regularFeeDefault = 300000;
+  static int regularFeeDefault = 200000;
 
   /// 신규 회원 1인당 추가 협회비 단가
   static int newMemberFeePerHead = 15000;
+
+  /// 선수 1인당 협회비 단가 (선수별 납부 체크 시스템)
+  static int playerFeeUnit = 15000;
 
   // ── 분담금 정책 ─────────────────────────────
   /// 협회장기대회 분담금 회원수당 단가 (예시)
