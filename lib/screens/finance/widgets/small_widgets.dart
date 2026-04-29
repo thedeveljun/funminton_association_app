@@ -61,7 +61,7 @@ class StatusChip extends StatelessWidget {
 // AmountSummaryBlock — 대회재정 탭 상단 금액 블록
 // ══════════════════════════════════════════════
 
-/// 대회재정 탭 상단의 (예산 총액 / 시 지원 합계 / 협회 부담) 같은 금액 블록.
+/// 대회재정 탭 상단의 (예산 총액 / 시 보조금 합계 / 협회 부담) 같은 금액 블록.
 /// 흰색 라벨 + 강조 색상 금액 (네이비 배너 위에 올라감).
 class AmountSummaryBlock extends StatelessWidget {
   final String label;

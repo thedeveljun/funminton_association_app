@@ -109,8 +109,10 @@ class TransactionRow extends StatelessWidget {
                           fontWeight: FontWeight.w500,
                         )),
                   ],
-                  // 클럽명: 협회비 거래는 title에 이미 클럽명이 있으니 메타에서 생략
-                  if (tx.clubName != null && tx.category != '협회비') ...[
+                  // 클럽명: 협회비/분담금 거래는 title에 이미 클럽명이 있으니 메타에서 생략
+                  if (tx.clubName != null &&
+                      tx.category != '협회비' &&
+                      tx.category != '분담금') ...[
                     const Text(' · ',
                         style:
                             TextStyle(fontSize: 13, color: Color(0xFF666666))),

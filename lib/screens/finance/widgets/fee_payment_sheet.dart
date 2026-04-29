@@ -231,6 +231,8 @@ class _FeePaymentSheetState extends State<FeePaymentSheet> {
       }
       if (mounted) {
         setState(() => _selectedIds.clear());
+        // 납부 처리 완료 후 시트 자동 닫기
+        Navigator.of(context).pop();
       }
     }
   }

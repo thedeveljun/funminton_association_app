@@ -38,7 +38,7 @@ class DlgField extends StatelessWidget {
           children: [
             Text(label,
                 style: const TextStyle(
-                  fontSize: 12,
+                  fontSize: 13,
                   fontWeight: FontWeight.w700,
                   color: Color(0xFF5F6B7A),
                 )),
@@ -208,7 +208,7 @@ class _TransactionDialogState extends State<TransactionDialog> {
               Text(_isEdit ? '항목 수정' : '항목 추가',
                   textAlign: TextAlign.center,
                   style: const TextStyle(
-                    fontSize: 17,
+                    fontSize: 18,
                     fontWeight: FontWeight.w800,
                     color: kInk,
                   )),
@@ -224,7 +224,7 @@ class _TransactionDialogState extends State<TransactionDialog> {
                 child: TextField(
                   controller: _titleCtrl,
                   style: const TextStyle(
-                      fontSize: 14, fontWeight: FontWeight.w600),
+                      fontSize: 15, fontWeight: FontWeight.w600),
                   decoration: financeInputDeco('예: 대관료'),
                 ),
               ),
@@ -238,7 +238,7 @@ class _TransactionDialogState extends State<TransactionDialog> {
                     ThousandsFormatter(),
                   ],
                   style: const TextStyle(
-                      fontSize: 13, fontWeight: FontWeight.w600),
+                      fontSize: 14, fontWeight: FontWeight.w600),
                   decoration: financeInputDeco('입력'),
                 ),
               ),
@@ -258,23 +258,24 @@ class _TransactionDialogState extends State<TransactionDialog> {
                     }
                   },
                   child: Container(
-                    height: 40,
+                    height: 42,
                     padding: const EdgeInsets.symmetric(horizontal: 12),
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: const Color(0xFFB8BEC9)),
+                      border: Border.all(
+                          color: const Color(0xFF9CA5B5), width: 1.5),
                     ),
                     child: Row(children: [
                       Text(_date,
                           style: const TextStyle(
-                            fontSize: 14,
+                            fontSize: 15,
                             fontWeight: FontWeight.w400,
                             color: kInk,
                           )),
                       const Spacer(),
                       const Icon(Icons.calendar_today_outlined,
-                          size: 15, color: Color(0xFF888888)),
+                          size: 16, color: Color(0xFF888888)),
                     ]),
                   ),
                 ),
@@ -283,7 +284,7 @@ class _TransactionDialogState extends State<TransactionDialog> {
                 label: '메모',
                 child: TextField(
                   controller: _memoCtrl,
-                  style: const TextStyle(fontSize: 13),
+                  style: const TextStyle(fontSize: 14),
                   decoration: financeInputDeco('예: 자체대회'),
                 ),
               ),

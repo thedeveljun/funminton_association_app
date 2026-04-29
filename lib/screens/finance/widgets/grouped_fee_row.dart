@@ -234,7 +234,7 @@ class GroupedFeeRow extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                           fontSize: 15,
-                          fontWeight: FontWeight.w700,
+                          fontWeight: FontWeight.w600,
                           color: kInk,
                           letterSpacing: -0.3,
                           height: 1.1,

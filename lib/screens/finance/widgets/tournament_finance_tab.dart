@@ -3,7 +3,7 @@
 // 대회재정 탭 전체 화면 + 대회 카드 위젯.
 //
 // 구성:
-//   - 상단 네이비 배너: 예산 총액 / 시 지원 합계 / 협회 부담
+//   - 상단 네이비 배너: 예산 총액 / 시 보조금 합계 / 협회 부담
 //   - 대회 카드 리스트: 각 대회의 예산, 분담금, 찬조, 실제 수입/지출 표시
 //
 // 카드 탭 시 TournamentFinanceScreen으로 이동 (대회별 상세 화면).
@@ -29,10 +29,14 @@ class TournamentFinanceTab extends StatelessWidget {
   /// 분담금 박스 탭 시 호출 (수정 진입)
   final void Function(Tournament)? onShareEdit;
 
+  /// 카드 ⋮ 메뉴 → 대회 수정 시 호출
+  final void Function(Tournament)? onEdit;
+
   const TournamentFinanceTab({
     required this.transactions,
     this.onShareAdd,
     this.onShareEdit,
+    this.onEdit,
   });
 
   @override
@@ -59,7 +63,7 @@ class TournamentFinanceTab extends StatelessWidget {
             const SizedBox(width: 12),
             Expanded(
                 child: AmountSummaryBlock(
-                    label: '시 지원 합계',
+                    label: '시 보조금',
                     amount: totalCitySupport,
                     color: const Color(0xFFB6D7FF))),
             const SizedBox(width: 12),
@@ -86,6 +90,7 @@ class TournamentFinanceTab extends StatelessWidget {
                   donations: SampleData.donations,
                   onShareAdd: onShareAdd,
                   onShareEdit: onShareEdit,
+                  onEdit: onEdit,
                 ),
               ),
       ),
@@ -105,6 +110,9 @@ class TournamentFinanceCard extends StatelessWidget {
   /// 분담금 박스 탭 시 호출 (수정 모드 진입 등). null이면 무시.
   final void Function(Tournament)? onShareEdit;
 
+  /// 카드 우상단 ⋮ 메뉴 → "대회 수정" 선택 시 호출. null이면 메뉴 표시 안 함.
+  final void Function(Tournament)? onEdit;
+
   const TournamentFinanceCard({
     required this.tournament,
     required this.transactions,
@@ -112,6 +120,7 @@ class TournamentFinanceCard extends StatelessWidget {
     required this.donations,
     this.onShareAdd,
     this.onShareEdit,
+    this.onEdit,
   });
 
   Color get _typeColor {
@@ -142,11 +151,14 @@ class TournamentFinanceCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final shareSummary =
         ClubShareSummary.from(tournament.id, tournament.name, shares);
-    final donationSummary = DonationSummary.from(donations,
-        tournamentId: tournament.id, tournamentName: tournament.name);
 
-    final relatedTx =
-        transactions.where((t) => t.tournamentId == tournament.id).toList();
+    // 이 대회의 거래 목록.
+    // 대회가 분담금을 적용하지 않으면 '분담금' 카테고리 거래는 제외 (연결된 분담금 데이터가 있어도 카드 통계에 반영 안 됨).
+    final relatedTx = transactions.where((t) {
+      if (t.tournamentId != tournament.id) return false;
+      if (!tournament.hasClubShare && t.category == '분담금') return false;
+      return true;
+    }).toList();
     final actualIncome =
         relatedTx.where((t) => t.isIncome).fold<int>(0, (s, t) => s + t.amount);
     final actualExpense = relatedTx
@@ -162,10 +174,16 @@ class TournamentFinanceCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: kCardBorderLight, width: 1.2),
-          boxShadow: const [
+          border: Border.all(
+            color: _typeColor.withOpacity(0.35),
+            width: 2.5,
+          ),
+          boxShadow: [
             BoxShadow(
-                color: Color(0x08000000), blurRadius: 4, offset: Offset(0, 1)),
+              color: _typeColor.withOpacity(0.06),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
           ],
         ),
         child: Column(
@@ -205,8 +223,11 @@ class TournamentFinanceCard extends StatelessWidget {
                 ),
               ),
               const Spacer(),
-              const Icon(Icons.chevron_right_rounded,
-                  size: 18, color: Color(0xFFAAAAAA)),
+              if (onEdit != null)
+                _CardMenuButton(onEdit: () => onEdit!(tournament))
+              else
+                const Icon(Icons.chevron_right_rounded,
+                    size: 18, color: Color(0xFFAAAAAA)),
             ]),
             const SizedBox(height: 8),
             Text(
@@ -222,9 +243,13 @@ class TournamentFinanceCard extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              '${tournament.startDate}${tournament.endDate.isNotEmpty && tournament.endDate != tournament.startDate ? ' ~ ${tournament.endDate}' : ''}'
-              '${tournament.region.isNotEmpty ? ' · ${tournament.region}' : ''}',
-              style: const TextStyle(fontSize: 12, color: Color(0xFF666666)),
+              '${tournament.startDate}${tournament.endDate.isNotEmpty && tournament.endDate != tournament.startDate ? ' ~ ${tournament.endDate}' : ''}',
+              style: const TextStyle(
+                fontSize: 13,
+                color: Color(0xFF333333),
+                fontWeight: FontWeight.w600,
+                letterSpacing: -0.2,
+              ),
             ),
             if (tournament.totalBudget > 0) ...[
               const SizedBox(height: 12),
@@ -244,11 +269,6 @@ class TournamentFinanceCard extends StatelessWidget {
                 if (shareSummary.totalCount > 0) const SizedBox(height: 6),
                 _shareAddButton(context),
               ],
-            ],
-            if (tournament.acceptsDonation &&
-                donationSummary.grandTotal > 0) ...[
-              const SizedBox(height: 8),
-              _donationRow(donationSummary),
             ],
             if (relatedTx.isNotEmpty) ...[
               const SizedBox(height: 10),
@@ -302,14 +322,20 @@ class TournamentFinanceCard extends StatelessWidget {
           if (t.citySupportAmount > 0) ...[
             const Dot(color: Color(0xFF6FA8E6)),
             const SizedBox(width: 4),
-            Text('시 ${t.formattedCitySupport}',
-                style: const TextStyle(fontSize: 11, color: Color(0xFF666666))),
+            Text('보조 ${t.formattedCitySupport}',
+                style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF555555),
+                    fontWeight: FontWeight.w500)),
             const SizedBox(width: 8),
           ],
           const Dot(color: Color(0xFFFFD0D0)),
           const SizedBox(width: 4),
           Text('협회 ${t.formattedAssociationBurden}',
-              style: const TextStyle(fontSize: 11, color: Color(0xFF666666))),
+              style: const TextStyle(
+                  fontSize: 12,
+                  color: Color(0xFF555555),
+                  fontWeight: FontWeight.w500)),
         ]),
       ],
     );
@@ -352,48 +378,21 @@ class TournamentFinanceCard extends StatelessWidget {
 
   Widget _shareRow(ClubShareSummary s) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
         color: const Color(0xFFF1F7FE),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Row(children: [
-        const Icon(Icons.account_balance_outlined, size: 14, color: kAccent),
+        const Icon(Icons.account_balance_outlined, size: 16, color: kAccent),
         const SizedBox(width: 6),
         const Text('분담금',
             style: TextStyle(
-                fontSize: 11, fontWeight: FontWeight.w700, color: kAccent)),
+                fontSize: 13, fontWeight: FontWeight.w700, color: kAccent)),
         const Spacer(),
         Text('${fmtAmt(s.collectedAmount)} / ${fmtAmt(s.totalAmount)}',
             style: const TextStyle(
-                fontSize: 11, fontWeight: FontWeight.w800, color: kInk)),
-      ]),
-    );
-  }
-
-  Widget _donationRow(DonationSummary d) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFFF7E6),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(children: [
-        const Icon(Icons.volunteer_activism_outlined,
-            size: 15, color: Color(0xFFB7791F)),
-        const SizedBox(width: 6),
-        const Text('찬조',
-            style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFFB7791F))),
-        const SizedBox(width: 8),
-        Text('개인 ${d.individualCount} · 기업 ${d.corporateCount}',
-            style: const TextStyle(fontSize: 12, color: Color(0xFF666666))),
-        const Spacer(),
-        Text(fmtAmt(d.grandTotal),
-            style: const TextStyle(
-                fontSize: 12, fontWeight: FontWeight.w800, color: kInk)),
+                fontSize: 13, fontWeight: FontWeight.w800, color: kInk)),
       ]),
     );
   }
@@ -423,4 +422,42 @@ class TournamentFinanceCard extends StatelessWidget {
       ),
     );
   }
+}
+
+// ── 카드 우상단 ⋮ 메뉴 버튼 ─────────────────
+class _CardMenuButton extends StatelessWidget {
+  final VoidCallback onEdit;
+  const _CardMenuButton({required this.onEdit});
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        width: 28,
+        height: 28,
+        child: PopupMenuButton<String>(
+          padding: EdgeInsets.zero,
+          icon: const Icon(Icons.more_vert, size: 20, color: Color(0xFF888888)),
+          tooltip: '메뉴',
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          onSelected: (v) {
+            if (v == 'edit') onEdit();
+          },
+          itemBuilder: (_) => [
+            PopupMenuItem<String>(
+              value: 'edit',
+              height: 40,
+              child: Row(
+                children: const [
+                  Icon(Icons.edit_outlined, size: 18, color: kInk),
+                  SizedBox(width: 8),
+                  Text('대회 수정',
+                      style:
+                          TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
 }

@@ -93,22 +93,22 @@ String todayStr() {
 /// 재정 화면 다이얼로그/입력창에 쓰는 통일된 InputDecoration.
 InputDecoration financeInputDeco(String hint) => InputDecoration(
       hintText: hint,
-      hintStyle: const TextStyle(fontSize: 13, color: Color(0xFFAAAAAA)),
+      hintStyle: const TextStyle(fontSize: 14, color: Color(0xFFAAAAAA)),
       filled: true,
       fillColor: Colors.white,
       isDense: true,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
-        borderSide: const BorderSide(color: Color(0xFFD8DEE8)),
+        borderSide: const BorderSide(color: Color(0xFF9CA5B5), width: 1.5),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
-        borderSide: const BorderSide(color: Color(0xFFD8DEE8)),
+        borderSide: const BorderSide(color: Color(0xFF9CA5B5), width: 1.5),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
-        borderSide: const BorderSide(color: Color(0xFF5F81A7), width: 1.5),
+        borderSide: const BorderSide(color: Color(0xFF5F81A7), width: 2),
       ),
     );
 
@@ -118,14 +118,37 @@ InputDecoration financeInputDeco(String hint) => InputDecoration(
 
 /// TextField input formatter — 입력 시 자동으로 천단위 콤마 추가.
 /// 예: "1234567" → "1,234,567"
+///
+/// 커서 위치를 보존하므로 중간 수정/삽입/삭제가 가능합니다.
 class ThousandsFormatter extends TextInputFormatter {
   @override
   TextEditingValue formatEditUpdate(
       TextEditingValue oldValue, TextEditingValue newValue) {
-    final digits = newValue.text.replaceAll(',', '');
-    if (digits.isEmpty) return newValue.copyWith(text: '');
-    final n = int.tryParse(digits);
+    // 1) 새 입력값에서 콤마 제거한 raw 숫자
+    final newDigits = newValue.text.replaceAll(',', '');
+
+    // 빈 입력
+    if (newDigits.isEmpty) {
+      return const TextEditingValue(
+        text: '',
+        selection: TextSelection.collapsed(offset: 0),
+      );
+    }
+
+    // 숫자 파싱 검증
+    final n = int.tryParse(newDigits);
     if (n == null) return oldValue;
+
+    // 2) 커서 왼쪽의 "숫자 개수"를 카운트 (콤마 제외)
+    //    예: "1,2|34" (커서 위치 3) → 왼쪽 숫자 개수 2
+    final cursorPos =
+        newValue.selection.baseOffset.clamp(0, newValue.text.length);
+    int digitsBeforeCursor = 0;
+    for (int i = 0; i < cursorPos; i++) {
+      if (newValue.text[i] != ',') digitsBeforeCursor++;
+    }
+
+    // 3) 포맷팅 (천단위 콤마)
     final s = n.toString();
     final buf = StringBuffer();
     for (int i = 0; i < s.length; i++) {
@@ -133,9 +156,19 @@ class ThousandsFormatter extends TextInputFormatter {
       buf.write(s[i]);
     }
     final formatted = buf.toString();
+
+    // 4) 포맷팅된 문자열에서 "digitsBeforeCursor개의 숫자가 지나간 위치"를 찾기
+    int newCursorPos = 0;
+    int digitCount = 0;
+    for (int i = 0; i < formatted.length; i++) {
+      if (digitCount >= digitsBeforeCursor) break;
+      if (formatted[i] != ',') digitCount++;
+      newCursorPos = i + 1;
+    }
+
     return TextEditingValue(
       text: formatted,
-      selection: TextSelection.collapsed(offset: formatted.length),
+      selection: TextSelection.collapsed(offset: newCursorPos),
     );
   }
 }

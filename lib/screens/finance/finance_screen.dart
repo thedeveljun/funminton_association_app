@@ -4,8 +4,8 @@
 //
 // 탭 구성:
 //   1) 협회비 (FeeTab)         - 클럽별 협회비 납부 현황
-//   2) 수입/지출 (IncomeExpenseTab) - 거래 내역 + 항목 추가/수정
-//   3) 대회재정 (TournamentFinanceTab) - 대회별 예산/실적
+//   2) 대회재정 (TournamentFinanceTab) - 대회별 예산/실적
+//   3) 수입/지출 (IncomeExpenseTab) - 거래 내역 + 항목 추가/수정
 //   4) 요약 (SummaryTab)        - 기간별 통계
 //
 // 모든 자식 위젯/헬퍼/상수는 widgets/widgets.dart (barrel)에서 가져옵니다.
@@ -159,6 +159,14 @@ class _FinanceScreenState extends State<FinanceScreen>
   // ── 분담금 추가/수정 ──────────────────────
   Future<void> _showShareForm(Tournament tournament,
       {ClubShare? editing}) async {
+    // 신규 등록인데 대회가 분담금 미적용이면 차단
+    // (수정/삭제는 기존 데이터 정리를 위해 허용)
+    if (editing == null && !tournament.hasClubShare) {
+      _snack('${tournament.name}은(는) 분담금이 적용되지 않는 대회입니다.\n'
+          '먼저 대회 수정에서 "클럽 분담금 적용"을 켜주세요.');
+      return;
+    }
+
     final result = await showModalBottomSheet<ClubShareFormResult>(
       context: context,
       isScrollControlled: true,
@@ -245,7 +253,7 @@ class _FinanceScreenState extends State<FinanceScreen>
   FinanceTransaction _buildShareTx(ClubShare s, String txId) {
     return FinanceTransaction(
       id: txId,
-      title: '${s.tournamentName} - ${s.clubName}',
+      title: '${s.clubName} 분담금',
       amount: s.amount,
       isIncome: true,
       category: '분담금',
@@ -256,6 +264,180 @@ class _FinanceScreenState extends State<FinanceScreen>
       tournamentName: s.tournamentName,
       memo: s.memo,
     );
+  }
+
+  // ── 대회 수정/삭제 ────────────────────────
+  Future<void> _showTournamentForm(Tournament tournament) async {
+    final result = await showModalBottomSheet<TournamentFormResult>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => TournamentFormSheet(initial: tournament),
+    );
+
+    if (result == null) return;
+
+    // 토글이 ON → OFF로 변경됐는지 확인
+    final shareTurnedOff =
+        tournament.hasClubShare && !result.tournament.hasClubShare;
+    final donationTurnedOff =
+        tournament.acceptsDonation && !result.tournament.acceptsDonation;
+
+    // 영향받는 데이터 개수 확인
+    final affectedShares = shareTurnedOff
+        ? SampleData.clubShares
+            .where((s) => s.tournamentId == result.tournament.id)
+            .length
+        : 0;
+    final affectedDonations = donationTurnedOff
+        ? SampleData.donations
+            .where((d) => d.tournamentId == result.tournament.id)
+            .length
+        : 0;
+
+    // 토글 OFF로 변경 + 영향 데이터 있으면 사용자 확인
+    if (result.action == TournamentFormAction.update &&
+        (affectedShares > 0 || affectedDonations > 0)) {
+      final messages = <String>[];
+      if (affectedShares > 0) {
+        messages.add('• 분담금 $affectedShares건 + 연결된 수입 거래');
+      }
+      if (affectedDonations > 0) {
+        messages.add('• 찬조 $affectedDonations건 + 연결된 수입 거래');
+      }
+
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('연결 데이터 삭제',
+              style: TextStyle(
+                  fontSize: 17, fontWeight: FontWeight.w800, color: kInk)),
+          content: Text(
+            '토글을 끄면 다음 데이터가 모두 삭제됩니다:\n\n'
+            '${messages.join('\n')}\n\n'
+            '⚠️ 이 작업은 되돌릴 수 없습니다.',
+            style: const TextStyle(fontSize: 14, height: 1.4),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('취소'),
+            ),
+            TextButton(
+              style: TextButton.styleFrom(foregroundColor: kExpenseFg),
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('삭제하고 저장',
+                  style: TextStyle(fontWeight: FontWeight.w800)),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+    }
+
+    setState(() {
+      switch (result.action) {
+        case TournamentFormAction.update:
+          final idx = SampleData.tournaments
+              .indexWhere((t) => t.id == result.tournament.id);
+          if (idx == -1) break;
+          SampleData.tournaments[idx] = result.tournament;
+
+          // 분담금 토글 OFF → 분담금 + 연결 거래 모두 삭제
+          if (shareTurnedOff) {
+            // 연결된 거래 ID 수집
+            final shareTxIds = SampleData.clubShares
+                .where((s) =>
+                    s.tournamentId == result.tournament.id && s.txId != null)
+                .map((s) => s.txId!)
+                .toSet();
+            // 분담금 데이터 삭제
+            SampleData.clubShares
+                .removeWhere((s) => s.tournamentId == result.tournament.id);
+            // 거래내역에서 해당 거래도 삭제
+            _transactions.removeWhere((t) => shareTxIds.contains(t.id));
+            SampleData.transactions
+                .removeWhere((t) => shareTxIds.contains(t.id));
+          }
+
+          // 찬조 토글 OFF → 찬조 + 연결 거래 모두 삭제
+          if (donationTurnedOff) {
+            final donationTxIds = SampleData.donations
+                .where((d) =>
+                    d.tournamentId == result.tournament.id && d.txId != null)
+                .map((d) => d.txId!)
+                .toSet();
+            SampleData.donations
+                .removeWhere((d) => d.tournamentId == result.tournament.id);
+            _transactions.removeWhere((t) => donationTxIds.contains(t.id));
+            SampleData.transactions
+                .removeWhere((t) => donationTxIds.contains(t.id));
+          }
+
+          // 연결된 분담금/거래의 대회명도 갱신 (대회명이 바뀐 경우)
+          if (tournament.name != result.tournament.name) {
+            for (var i = 0; i < SampleData.clubShares.length; i++) {
+              if (SampleData.clubShares[i].tournamentId ==
+                  result.tournament.id) {
+                final old = SampleData.clubShares[i];
+                SampleData.clubShares[i] = ClubShare(
+                  id: old.id,
+                  tournamentId: old.tournamentId,
+                  tournamentName: result.tournament.name,
+                  clubId: old.clubId,
+                  clubName: old.clubName,
+                  amount: old.amount,
+                  paid: old.paid,
+                  paidDate: old.paidDate,
+                  txId: old.txId,
+                  memo: old.memo,
+                );
+              }
+            }
+            // 거래의 tournamentName도 갱신
+            // (분담금 거래는 제목이 "{클럽명} 분담금" 형식이라 제목 자체는 갱신 불필요)
+            for (var i = 0; i < _transactions.length; i++) {
+              if (_transactions[i].tournamentId == result.tournament.id) {
+                final tx = _transactions[i];
+                _transactions[i] = FinanceTransaction(
+                  id: tx.id,
+                  title: tx.title,
+                  amount: tx.amount,
+                  isIncome: tx.isIncome,
+                  category: tx.category,
+                  date: tx.date,
+                  clubId: tx.clubId,
+                  clubName: tx.clubName,
+                  tournamentId: tx.tournamentId,
+                  tournamentName: result.tournament.name,
+                  memo: tx.memo,
+                );
+              }
+            }
+          }
+
+          // 결과 메시지
+          if (shareTurnedOff || donationTurnedOff) {
+            final parts = <String>[];
+            if (shareTurnedOff && affectedShares > 0) {
+              parts.add('분담금 $affectedShares건 삭제');
+            }
+            if (donationTurnedOff && affectedDonations > 0) {
+              parts.add('찬조 $affectedDonations건 삭제');
+            }
+            _snack('${result.tournament.name} 수정 완료 (${parts.join(', ')})');
+          } else {
+            _snack('${result.tournament.name} 수정 완료');
+          }
+          break;
+
+        case TournamentFormAction.delete:
+          SampleData.tournaments
+              .removeWhere((t) => t.id == result.tournament.id);
+          _snack('${result.tournament.name} 삭제됨');
+          break;
+      }
+    });
   }
 
   @override
@@ -303,8 +485,8 @@ class _FinanceScreenState extends State<FinanceScreen>
             labelPadding: const EdgeInsets.symmetric(horizontal: 4),
             tabs: const [
               Tab(text: '협회비'),
-              Tab(text: '수입/지출'),
               Tab(text: '대회재정'),
+              Tab(text: '수입/지출'),
               Tab(text: '요약'),
             ],
           ),
@@ -313,15 +495,16 @@ class _FinanceScreenState extends State<FinanceScreen>
           controller: _tc,
           children: [
             FeeTab(onRowTap: _showFeeDialog),
-            IncomeExpenseTab(
-              transactions: _transactions,
-              onAddTap: _showAddDialog,
-              onItemTap: _showEditDialog,
-            ),
             TournamentFinanceTab(
               transactions: _transactions,
               onShareAdd: (t) => _showShareForm(t),
               onShareEdit: (t) => _showShareForm(t),
+              onEdit: (t) => _showTournamentForm(t),
+            ),
+            IncomeExpenseTab(
+              transactions: _transactions,
+              onAddTap: _showAddDialog,
+              onItemTap: _showEditDialog,
             ),
             SummaryTab(
               transactions: _transactions,

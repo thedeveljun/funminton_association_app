@@ -6,6 +6,10 @@ import '../../models/club_share.dart';
 import '../../models/donation.dart';
 import '../../models/finance_transaction.dart';
 import '../../services/sample_data.dart';
+import 'widgets/donation_form_sheet.dart';
+import 'widgets/club_share_form_sheet.dart';
+import 'widgets/transaction_dialog.dart';
+import 'widgets/finance_helpers.dart';
 
 const _bgPage = Color(0xFFF6F7FA);
 const _ink = Color(0xFF111111);
@@ -80,7 +84,7 @@ class _TournamentFinanceScreenState extends State<TournamentFinanceScreen>
   }
 
   // ── 분담금 토글 ────────────────────────────
-  void _toggleSharePaid(ClubShare share) {
+  Future<void> _toggleSharePaid(ClubShare share) async {
     final idx = SampleData.clubShares.indexWhere((s) => s.id == share.id);
     if (idx < 0) return;
 
@@ -88,14 +92,46 @@ class _TournamentFinanceScreenState extends State<TournamentFinanceScreen>
         '${DateTime.now().year}-${DateTime.now().month.toString().padLeft(2, '0')}-${DateTime.now().day.toString().padLeft(2, '0')}';
 
     if (share.paid) {
-      // 납부 → 미납 (연결된 거래도 삭제)
+      // 납부 → 미납: 사용자 확인 필요 (연결된 거래도 삭제됨)
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text(
+            '미납 처리',
+            style: TextStyle(
+                fontSize: 17, fontWeight: FontWeight.w800, color: _ink),
+          ),
+          content: Text(
+            '${share.clubName}의 분담금 ${share.formattedAmount}을(를) '
+            '미납으로 변경하시겠습니까?\n\n'
+            '⚠️ 연결된 수입 거래도 함께 삭제됩니다.',
+            style: const TextStyle(fontSize: 14, color: _ink, height: 1.4),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('취소',
+                  style: TextStyle(color: _muted, fontWeight: FontWeight.w600)),
+            ),
+            TextButton(
+              style: TextButton.styleFrom(foregroundColor: _expenseFg),
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('미납 처리',
+                  style: TextStyle(fontWeight: FontWeight.w800)),
+            ),
+          ],
+        ),
+      );
+
+      if (confirmed != true) return;
+
       if (share.txId != null) {
         SampleData.transactions.removeWhere((t) => t.id == share.txId);
       }
       SampleData.clubShares[idx] = share.markUnpaid();
       _snack('${share.clubName} 분담금을 미납으로 변경했습니다.');
     } else {
-      // 미납 → 납부 (연결 거래 자동 생성)
+      // 미납 → 납부 (연결 거래 자동 생성, 확인 없이 진행)
       final txId = 'tx_share_${DateTime.now().microsecondsSinceEpoch}';
       SampleData.transactions.add(FinanceTransaction(
         id: txId,
@@ -115,19 +151,191 @@ class _TournamentFinanceScreenState extends State<TournamentFinanceScreen>
     _refresh();
   }
 
-  // ── 찬조 감사 토글 ──────────────────────────
-  void _toggleAcknowledged(Donation donation) {
-    final idx = SampleData.donations.indexWhere((d) => d.id == donation.id);
-    if (idx < 0) return;
-    SampleData.donations[idx] =
-        donation.copyWith(acknowledged: !donation.acknowledged);
-    _snack(donation.acknowledged
-        ? '${donation.donorName} 감사 표시를 해제했습니다.'
-        : '${donation.donorName} 감사 표시를 완료했습니다.');
+  // ── 찬조 수정/삭제 시트 ────────────────────
+  Future<void> _showDonationForm(Donation donation) async {
+    final result = await showModalBottomSheet<DonationFormResult>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => DonationFormSheet(initial: donation),
+    );
+
+    if (result == null) return;
+
+    switch (result.action) {
+      case DonationFormAction.add:
+        // 카드 탭 → 수정 모드이므로 add는 발생하지 않지만
+        // enum 완전성을 위해 케이스 추가 (방어적 처리)
+        SampleData.donations.add(result.donation);
+        _snack('${result.donation.donorName} 찬조가 등록되었습니다.');
+        break;
+
+      case DonationFormAction.update:
+        final idx =
+            SampleData.donations.indexWhere((d) => d.id == result.donation.id);
+        if (idx < 0) return;
+        SampleData.donations[idx] = result.donation;
+        _snack('${result.donation.donorName} 찬조를 수정했습니다.');
+        break;
+
+      case DonationFormAction.delete:
+        // 연결된 거래도 함께 제거
+        if (result.donation.txId != null) {
+          SampleData.transactions
+              .removeWhere((t) => t.id == result.donation.txId);
+        }
+        SampleData.donations.removeWhere((d) => d.id == result.donation.id);
+        _snack('${result.donation.donorName} 찬조를 삭제했습니다.');
+        break;
+    }
     _refresh();
   }
 
-  // ── FAB 액션 시트 ──────────────────────────
+  // ── FAB 액션 (현재 탭에 따라 다른 동작) ──────
+  void _onFabPressed() {
+    final tabIndex = _tc.index;
+    switch (tabIndex) {
+      case 0: // 현황 탭 → 모든 옵션 시트
+        _showFabSheet();
+        break;
+      case 1: // 분담금 탭 → 분담금 추가만
+        if (!_t.hasClubShare) {
+          _snack('이 대회는 분담금이 적용되지 않습니다.');
+          return;
+        }
+        _addShare();
+        break;
+      case 2: // 찬조 탭 → 찬조 추가만
+        if (!_t.acceptsDonation) {
+          _snack('이 대회는 찬조를 받지 않습니다.');
+          return;
+        }
+        _addDonation();
+        break;
+      case 3: // 거래내역 탭 → 거래 추가만
+        _addTransaction();
+        break;
+    }
+  }
+
+  // ── 분담금 추가 ────────────────────────────
+  Future<void> _addShare() async {
+    // 안전장치: 대회가 분담금 미적용이면 차단
+    if (!_t.hasClubShare) {
+      _snack('이 대회는 분담금이 적용되지 않습니다.');
+      return;
+    }
+
+    final result = await showModalBottomSheet<ClubShareFormResult>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => ClubShareFormSheet(
+        tournament: _t,
+        existingShares: SampleData.clubShares,
+      ),
+    );
+
+    if (result == null) return;
+    if (result.action != ClubShareFormAction.add) return;
+
+    setState(() {
+      // 분담금 추가
+      SampleData.clubShares.add(result.share);
+
+      // 납부 체크되어 있으면 거래도 자동 생성 + txId 연결
+      if (result.share.paid) {
+        final txId = 'tx_share_${DateTime.now().microsecondsSinceEpoch}';
+        SampleData.transactions.add(_buildShareTx(result.share, txId));
+        // 방금 추가한 share에 txId 연결
+        final idx = SampleData.clubShares.length - 1;
+        SampleData.clubShares[idx] =
+            SampleData.clubShares[idx].copyWith(txId: txId);
+      }
+    });
+    _snack('${result.share.clubName} 분담금이 등록되었습니다.');
+    _refresh();
+  }
+
+  /// 분담금 → FinanceTransaction 변환
+  FinanceTransaction _buildShareTx(ClubShare s, String txId) {
+    return FinanceTransaction(
+      id: txId,
+      title: '${s.clubName} 분담금',
+      amount: s.amount,
+      isIncome: true,
+      category: '분담금',
+      date: s.paidDate ?? todayStr(),
+      clubId: s.clubId,
+      clubName: s.clubName,
+      tournamentId: s.tournamentId,
+      tournamentName: s.tournamentName,
+      memo: s.memo,
+    );
+  }
+
+  // ── 찬조 추가 ──────────────────────────────
+  Future<void> _addDonation() async {
+    // 안전장치: 대회가 찬조 미허용이면 차단
+    if (!_t.acceptsDonation) {
+      _snack('이 대회는 찬조를 받지 않습니다.');
+      return;
+    }
+
+    final result = await showModalBottomSheet<DonationFormResult>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => DonationFormSheet(
+        tournamentId: _t.id,
+        tournamentName: _t.name,
+      ),
+    );
+
+    if (result == null) return;
+    if (result.action != DonationFormAction.add) return;
+
+    setState(() {
+      SampleData.donations.add(result.donation);
+    });
+    _snack('${result.donation.donorName} 찬조가 등록되었습니다.');
+    _refresh();
+  }
+
+  // ── 거래 추가 ──────────────────────────────
+  Future<void> _addTransaction() async {
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => TransactionDialog(
+        initial: null,
+        onSnack: _snack,
+        onSave: (tx) {
+          // 사용자가 입력한 거래에 현재 대회 정보 자동 추가
+          final txWithTournament = FinanceTransaction(
+            id: tx.id,
+            title: tx.title,
+            amount: tx.amount,
+            isIncome: tx.isIncome,
+            category: tx.category,
+            date: tx.date,
+            clubId: tx.clubId,
+            clubName: tx.clubName,
+            tournamentId: _t.id,
+            tournamentName: _t.name,
+            memo: tx.memo,
+          );
+          setState(() {
+            SampleData.transactions.add(txWithTournament);
+          });
+          _snack('거래내역이 등록되었습니다.');
+          _refresh();
+        },
+      ),
+    );
+  }
+
+  // ── FAB 액션 시트 (현황 탭에서만 호출) ──────
   void _showFabSheet() {
     showModalBottomSheet(
       context: context,
@@ -159,7 +367,7 @@ class _TournamentFinanceScreenState extends State<TournamentFinanceScreen>
                   subtitle: '대회에 참여하는 클럽에 분담금 부과',
                   onTap: () {
                     Navigator.pop(ctx);
-                    _snack('분담금 등록 화면은 다음 단계에서 연결됩니다.');
+                    _addShare();
                   },
                 ),
               if (_t.acceptsDonation)
@@ -168,10 +376,10 @@ class _TournamentFinanceScreenState extends State<TournamentFinanceScreen>
                   icon: Icons.volunteer_activism_outlined,
                   iconColor: const Color(0xFFB7791F),
                   title: '찬조 추가',
-                  subtitle: '개인·기업 현금/물품 찬조 등록',
+                  subtitle: '개인·기타 현금/물품 찬조 등록',
                   onTap: () {
                     Navigator.pop(ctx);
-                    _snack('찬조 등록 화면은 다음 단계에서 연결됩니다.');
+                    _addDonation();
                   },
                 ),
               _fabItem(
@@ -182,7 +390,7 @@ class _TournamentFinanceScreenState extends State<TournamentFinanceScreen>
                 subtitle: '이 대회의 일반 수입/지출 등록',
                 onTap: () {
                   Navigator.pop(ctx);
-                  _snack('거래내역 추가는 재정관리 메인 화면에서 가능합니다.');
+                  _addTransaction();
                 },
               ),
             ],
@@ -251,16 +459,16 @@ class _TournamentFinanceScreenState extends State<TournamentFinanceScreen>
             labelStyle:
                 const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
             unselectedLabelStyle:
-                const TextStyle(fontSize: 14, fontWeight: FontWeight.w400),
-            labelColor: _accent,
-            unselectedLabelColor: const Color(0xFF888888),
-            indicatorColor: _accent,
+                const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+            labelColor: _bannerNavy,
+            unselectedLabelColor: const Color(0xFF333333),
+            indicatorColor: _bannerNavy,
             indicatorWeight: 2.5,
             tabs: const [
-              Tab(text: '현황'),
-              Tab(text: '분담금'),
-              Tab(text: '찬조'),
-              Tab(text: '거래'),
+              Tab(text: '현황', height: 41),
+              Tab(text: '분담금', height: 41),
+              Tab(text: '찬조', height: 41),
+              Tab(text: '거래내역', height: 41),
             ],
           ),
         ),
@@ -282,7 +490,7 @@ class _TournamentFinanceScreenState extends State<TournamentFinanceScreen>
               _DonationTab(
                 tournament: _t,
                 donations: _donations,
-                onToggleAcknowledged: _toggleAcknowledged,
+                onTap: _showDonationForm,
               ),
               _TxTab(transactions: _transactions),
             ],
@@ -290,7 +498,7 @@ class _TournamentFinanceScreenState extends State<TournamentFinanceScreen>
         ),
       ]),
       floatingActionButton: FloatingActionButton(
-        onPressed: _showFabSheet,
+        onPressed: _onFabPressed,
         backgroundColor: _accent,
         elevation: 2,
         child: const Icon(Icons.add, color: Colors.white),
@@ -373,7 +581,6 @@ class _HeaderCard extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             '${t.startDate}${t.endDate.isNotEmpty && t.endDate != t.startDate ? ' ~ ${t.endDate}' : ''}'
-            '${t.region.isNotEmpty ? ' · ${t.region}' : ''}'
             '${t.venue.isNotEmpty ? ' · ${t.venue}' : ''}',
             style:
                 TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.75)),
@@ -388,7 +595,7 @@ class _HeaderCard extends StatelessWidget {
               if (t.citySupportAmount > 0) ...[
                 Expanded(
                   child: _budgetBlock(
-                      '시 지원', t.formattedCitySupport, const Color(0xFFB6D7FF)),
+                      '시 보조', t.formattedCitySupport, const Color(0xFFB6D7FF)),
                 ),
                 const SizedBox(width: 10),
               ],
@@ -410,7 +617,7 @@ class _HeaderCard extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               Text(
-                '시 지원 ${(t.cityFundingRatio * 100).toStringAsFixed(0)}%'
+                '시 보조 ${(t.cityFundingRatio * 100).toStringAsFixed(0)}%'
                 '${t.citySupportNote.isNotEmpty ? ' · ${t.citySupportNote}' : ''}',
                 style: TextStyle(
                     fontSize: 11, color: Colors.white.withOpacity(0.75)),
@@ -480,7 +687,7 @@ class _OverviewTab extends StatelessWidget {
     final budgetRemaining = tournament.totalBudget - actualExpense;
 
     return ListView(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
       children: [
         // ── 분담금 진행 ──
         if (tournament.hasClubShare && shareSum.totalCount > 0)
@@ -490,17 +697,17 @@ class _OverviewTab extends StatelessWidget {
             iconColor: _accent,
             stat1Label: '납부 완료',
             stat1Value: '${shareSum.paidCount}/${shareSum.totalCount} 클럽',
-            stat2Label: '수금액',
+            stat2Label: '납입액',
             stat2Value: _fmtAmt(shareSum.collectedAmount),
             progress: shareSum.collectionRatio,
             progressLabel:
-                '${(shareSum.collectionRatio * 100).toStringAsFixed(0)}% · 미수금 ${_fmtAmt(shareSum.pendingAmount)}',
+                '${(shareSum.collectionRatio * 100).toStringAsFixed(0)}% · 미납 ${_fmtAmt(shareSum.pendingAmount)}',
           ),
 
         // ── 찬조 합계 ──
         if (tournament.acceptsDonation && donSum.grandTotal > 0) ...[
           if (tournament.hasClubShare && shareSum.totalCount > 0)
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
           _statCard(
             title: '찬조 현황',
             icon: Icons.volunteer_activism_outlined,
@@ -508,9 +715,9 @@ class _OverviewTab extends StatelessWidget {
             children: [
               _row('개인 찬조',
                   '${donSum.individualCount}건 · ${_fmtAmt(donSum.individualTotal)}'),
-              _row('기업 찬조',
+              _row('기타 찬조',
                   '${donSum.corporateCount}건 · ${_fmtAmt(donSum.corporateTotal)}'),
-              const Divider(height: 14, color: _cardBorderLight),
+              const Divider(height: 10, color: _cardBorderLight),
               _row('현금 합계', _fmtAmt(donSum.cashTotal), bold: true),
               _row('물품 합계 (평가액)', _fmtAmt(donSum.itemTotal), bold: true),
               _row('총 찬조액', _fmtAmt(donSum.grandTotal),
@@ -521,7 +728,7 @@ class _OverviewTab extends StatelessWidget {
 
         // ── 예산 vs 실적 ──
         if (tournament.totalBudget > 0) ...[
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           _statCard(
             title: '예산 vs 실적',
             icon: Icons.assessment_outlined,
@@ -529,7 +736,7 @@ class _OverviewTab extends StatelessWidget {
             children: [
               _row('계획 예산', _fmtAmt(tournament.totalBudget)),
               _row('실제 지출', _fmtAmt(actualExpense), color: _expenseFg),
-              const Divider(height: 14, color: _cardBorderLight),
+              const Divider(height: 10, color: _cardBorderLight),
               _row(
                 budgetRemaining >= 0 ? '예산 잔여' : '예산 초과',
                 _fmtAmt(budgetRemaining.abs()),
@@ -541,7 +748,7 @@ class _OverviewTab extends StatelessWidget {
         ],
 
         // ── 거래 합계 ──
-        const SizedBox(height: 10),
+        const SizedBox(height: 8),
         _statCard(
           title: '거래 합계',
           icon: Icons.swap_vert_rounded,
@@ -549,7 +756,7 @@ class _OverviewTab extends StatelessWidget {
           children: [
             _row('수입', _fmtAmt(actualIncome), color: _incomeFg),
             _row('지출', _fmtAmt(actualExpense), color: _expenseFg),
-            const Divider(height: 14, color: _cardBorderLight),
+            const Divider(height: 10, color: _cardBorderLight),
             _row('잔액', _fmtAmt(balance),
                 bold: true, color: balance >= 0 ? _incomeFg : _expenseFg),
           ],
@@ -573,7 +780,7 @@ class _OverviewTab extends StatelessWidget {
     required String progressLabel,
   }) =>
       Container(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(14),
@@ -583,26 +790,26 @@ class _OverviewTab extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(children: [
-              Icon(icon, size: 16, color: iconColor),
+              Icon(icon, size: 17, color: iconColor),
               const SizedBox(width: 6),
               Text(title,
                   style: TextStyle(
-                      fontSize: 13,
+                      fontSize: 14,
                       fontWeight: FontWeight.w800,
                       color: iconColor)),
             ]),
-            const SizedBox(height: 10),
+            const SizedBox(height: 6),
             Row(children: [
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(stat1Label,
-                        style: const TextStyle(fontSize: 11, color: _muted)),
-                    const SizedBox(height: 2),
+                        style: const TextStyle(fontSize: 12, color: _muted)),
+                    const SizedBox(height: 1),
                     Text(stat1Value,
                         style: const TextStyle(
-                            fontSize: 14,
+                            fontSize: 15,
                             fontWeight: FontWeight.w800,
                             color: _ink)),
                   ],
@@ -613,18 +820,18 @@ class _OverviewTab extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(stat2Label,
-                        style: const TextStyle(fontSize: 11, color: _muted)),
-                    const SizedBox(height: 2),
+                        style: const TextStyle(fontSize: 12, color: _muted)),
+                    const SizedBox(height: 1),
                     Text(stat2Value,
                         style: const TextStyle(
-                            fontSize: 14,
+                            fontSize: 15,
                             fontWeight: FontWeight.w800,
                             color: _ink)),
                   ],
                 ),
               ),
             ]),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             ClipRRect(
               borderRadius: BorderRadius.circular(99),
               child: LinearProgressIndicator(
@@ -634,9 +841,9 @@ class _OverviewTab extends StatelessWidget {
                 valueColor: AlwaysStoppedAnimation(iconColor),
               ),
             ),
-            const SizedBox(height: 5),
+            const SizedBox(height: 3),
             Text(progressLabel,
-                style: const TextStyle(fontSize: 11, color: _muted)),
+                style: const TextStyle(fontSize: 12, color: _muted)),
           ],
         ),
       );
@@ -648,7 +855,7 @@ class _OverviewTab extends StatelessWidget {
     required List<Widget> children,
   }) =>
       Container(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(14),
@@ -658,15 +865,15 @@ class _OverviewTab extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(children: [
-              Icon(icon, size: 16, color: iconColor),
+              Icon(icon, size: 17, color: iconColor),
               const SizedBox(width: 6),
               Text(title,
                   style: TextStyle(
-                      fontSize: 13,
+                      fontSize: 14,
                       fontWeight: FontWeight.w800,
                       color: iconColor)),
             ]),
-            const SizedBox(height: 10),
+            const SizedBox(height: 6),
             ...children,
           ],
         ),
@@ -674,18 +881,18 @@ class _OverviewTab extends StatelessWidget {
 
   Widget _row(String label, String value, {bool bold = false, Color? color}) =>
       Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
+        padding: const EdgeInsets.symmetric(vertical: 2),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(label,
                 style: TextStyle(
-                    fontSize: 12,
+                    fontSize: 13,
                     fontWeight: bold ? FontWeight.w700 : FontWeight.w500,
                     color: bold ? _ink : _muted)),
             Text(value,
                 style: TextStyle(
-                    fontSize: 13,
+                    fontSize: 14,
                     fontWeight: FontWeight.w800,
                     color: color ?? _ink)),
           ],
@@ -751,10 +958,10 @@ class _ShareTab extends StatelessWidget {
           _vDiv(),
           _summaryItem('납부', '${summary.paidCount} 클럽', _incomeFg),
           _vDiv(),
-          _summaryItem('수금률',
+          _summaryItem('납입률',
               '${(summary.collectionRatio * 100).toStringAsFixed(0)}%', _ink),
           _vDiv(),
-          _summaryItem('수금액', _fmtAmt(summary.collectedAmount), _ink,
+          _summaryItem('납입액', _fmtAmt(summary.collectedAmount), _ink,
               large: true),
         ]),
       ),
@@ -778,13 +985,13 @@ class _ShareTab extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Text(label, style: const TextStyle(fontSize: 10, color: _muted)),
+            Text(label, style: const TextStyle(fontSize: 11, color: _muted)),
             const SizedBox(height: 2),
             FittedBox(
               fit: BoxFit.scaleDown,
               child: Text(value,
                   style: TextStyle(
-                      fontSize: large ? 13 : 14,
+                      fontSize: large ? 14 : 15,
                       fontWeight: FontWeight.w800,
                       color: color)),
             ),
@@ -879,12 +1086,12 @@ class _ShareTile extends StatelessWidget {
 class _DonationTab extends StatelessWidget {
   final Tournament tournament;
   final List<Donation> donations;
-  final void Function(Donation) onToggleAcknowledged;
+  final void Function(Donation) onTap;
 
   const _DonationTab({
     required this.tournament,
     required this.donations,
-    required this.onToggleAcknowledged,
+    required this.onTap,
   });
 
   @override
@@ -924,9 +1131,9 @@ class _DonationTab extends StatelessWidget {
           const SizedBox(height: 6),
           Row(children: [
             _gridItem(
-                '기업 현금', summary.corporateCashTotal, summary.corporateCount),
+                '기타 현금', summary.corporateCashTotal, summary.corporateCount),
             const SizedBox(width: 8),
-            _gridItem('기업 물품', summary.corporateItemTotal, null),
+            _gridItem('기타 물품', summary.corporateItemTotal, null),
           ]),
           const SizedBox(height: 8),
           Container(
@@ -961,7 +1168,7 @@ class _DonationTab extends StatelessWidget {
           itemCount: sorted.length,
           itemBuilder: (_, i) => _DonationTile(
             donation: sorted[i],
-            onTap: () => onToggleAcknowledged(sorted[i]),
+            onTap: () => onTap(sorted[i]),
           ),
         ),
       ),
@@ -1029,6 +1236,14 @@ class _DonationTile extends StatelessWidget {
     return const Color(0xFFFFEDD8);
   }
 
+  /// "개인 · 현금" / "기타 · 물품" 같은 표시 라벨.
+  /// 모델의 combinedLabel은 "기업"으로 표시되지만 UI에는 "기타"로 통일.
+  String get _label {
+    final typeLabel = donation.type == DonationType.individual ? '개인' : '기타';
+    final kindLabel = donation.kind == DonationKind.cash ? '현금' : '물품';
+    return '$typeLabel · $kindLabel';
+  }
+
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
@@ -1050,7 +1265,7 @@ class _DonationTile extends StatelessWidget {
               borderRadius: BorderRadius.circular(7),
             ),
             child: Text(
-              donation.combinedLabel,
+              _label,
               style: TextStyle(
                 fontSize: 10,
                 fontWeight: FontWeight.w800,
