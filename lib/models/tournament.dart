@@ -46,6 +46,33 @@ class Tournament {
   final bool hasClubShare; // 클럽 분담금 적용 여부
   final bool acceptsDonation; // 찬조(개인/기업) 받는 대회 여부
 
+  // ── 연령 그룹 ────────────────────────────
+  /// 대회별 연령 그룹 라벨. 예: ['전체', '40대', '45대', '50대', '60대']
+  /// 라벨 규칙: "X0대" → [X0, X0+10), "X5대" → [X5, X5+5), "전체" → 모든 연령
+  /// TODO: tournament_form_screen에서 편집 가능하도록 UI 연결
+  final List<String> ageGroups;
+
+  static const List<String> defaultAgeGroups = [
+    '전체',
+    '20대',
+    '30대',
+    '40대',
+    '45대',
+    '50대',
+    '55대',
+    '60대',
+    '70대',
+  ];
+
+  /// 경기장별 코트 수 — venue 필드와 같은 순서, 콤마 구분
+  /// 예) venue="과천시민체육관, 과천종합운동장", venueCourts="6,4"
+  /// 0 = 사용 안 함 (체크 해제 상태)
+  /// 빈 문자열 또는 길이 불일치 시 venueList 길이만큼 기본 4코트 자동 채움
+  final String venueCourts;
+
+  /// 각 경기장의 기본 코트 수 (venueCourts가 비었거나 짧을 때 사용)
+  static const int defaultCourtsPerVenue = 4;
+
   const Tournament({
     required this.id,
     required this.name,
@@ -66,9 +93,46 @@ class Tournament {
     this.citySupportNote = '',
     this.hasClubShare = false,
     this.acceptsDonation = false,
+    this.ageGroups = defaultAgeGroups,
+    this.venueCourts = '',
   });
 
   // ── 파생 게터 ────────────────────────────
+
+  /// 콤마 구분된 venue 문자열을 trim된 리스트로 파싱
+  List<String> get venueList => venue
+      .split(',')
+      .map((s) => s.trim())
+      .where((s) => s.isNotEmpty)
+      .toList();
+
+  /// 각 경기장의 코트 수 리스트. venueList 길이에 맞춰 정규화.
+  /// venueCourts가 비거나 짧으면 부족한 만큼 defaultCourtsPerVenue로 채움.
+  List<int> get venueCourtsList {
+    final venues = venueList;
+    if (venues.isEmpty) return const [];
+    final raw = venueCourts
+        .split(',')
+        .map((s) => int.tryParse(s.trim()) ?? defaultCourtsPerVenue)
+        .toList();
+    return List.generate(
+      venues.length,
+      (i) => i < raw.length ? raw[i] : defaultCourtsPerVenue,
+    );
+  }
+
+  /// 0이 아닌(=활성) 코트 수의 합
+  int get totalActiveCourts =>
+      venueCourtsList.fold(0, (s, c) => s + (c > 0 ? c : 0));
+
+  /// 0이 아닌(=활성) 경기장 개수
+  int get activeVenueCount => venueCourtsList.where((c) => c > 0).length;
+
+  /// index 번 경기장 활성화 여부 (코트 수 > 0)
+  bool isVenueActive(int index) {
+    final list = venueCourtsList;
+    return index >= 0 && index < list.length && list[index] > 0;
+  }
 
   /// 협회 자체 부담액 (총 예산 − 시 지원금)
   int get associationBurden => totalBudget - citySupportAmount;
@@ -125,6 +189,8 @@ class Tournament {
     String? citySupportNote,
     bool? hasClubShare,
     bool? acceptsDonation,
+    List<String>? ageGroups,
+    String? venueCourts,
   }) =>
       Tournament(
         id: id,
@@ -146,6 +212,8 @@ class Tournament {
         citySupportNote: citySupportNote ?? this.citySupportNote,
         hasClubShare: hasClubShare ?? this.hasClubShare,
         acceptsDonation: acceptsDonation ?? this.acceptsDonation,
+        ageGroups: ageGroups ?? this.ageGroups,
+        venueCourts: venueCourts ?? this.venueCourts,
       );
 
   // ── DB 변환 ──────────────────────────────
@@ -169,6 +237,8 @@ class Tournament {
         'city_support_note': citySupportNote,
         'has_club_share': hasClubShare ? 1 : 0,
         'accepts_donation': acceptsDonation ? 1 : 0,
+        'age_groups': ageGroups.join(','),
+        'venue_courts': venueCourts,
       };
 
   factory Tournament.fromMap(Map<String, dynamic> m) => Tournament(
@@ -194,5 +264,17 @@ class Tournament {
         citySupportNote: m['city_support_note'] ?? '',
         hasClubShare: (m['has_club_share'] ?? 0) == 1,
         acceptsDonation: (m['accepts_donation'] ?? 0) == 1,
+        ageGroups: () {
+          final raw = m['age_groups'];
+          if (raw is String && raw.isNotEmpty) {
+            return raw
+                .split(',')
+                .map((s) => s.trim())
+                .where((s) => s.isNotEmpty)
+                .toList();
+          }
+          return defaultAgeGroups;
+        }(),
+        venueCourts: m['venue_courts'] ?? '',
       );
 }
