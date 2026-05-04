@@ -5,11 +5,14 @@ import '../../models/player.dart';
 import '../../models/tournament.dart';
 import '../../services/bracket_service.dart';
 import '../../services/sample_data.dart';
+import '../../utils/age_group.dart';
 import '../../widgets/common/filter_chips.dart';
 import '../../widgets/common/stat_banner.dart';
 import '../../widgets/players/player_list_item.dart';
 import '../../widgets/bracket/match_card.dart';
 import '../../widgets/bracket/score_input_sheet.dart';
+
+const _headerInk = Color(0xFF0D1B3E);
 
 // ═══════════════════════════════════════════════════════
 //  BracketScreen
@@ -28,9 +31,9 @@ class _BracketScreenState extends State<BracketScreen>
 
   String _type = '혼복';
   String _grade = '전체';
-  String _ageView = '전체';
-  final Set<String> _activeDecades = {'20', '30', '40', '50'};
-  final Set<String> _openSections = {'20', '30', '40', '50', '60', '70'};
+  // _activeAgeGroups / _openSections 의 원소는 ageGroup 라벨("20대","45대","전체"제외).
+  final Set<String> _activeAgeGroups = {};
+  final Set<String> _openSections = {};
   final Set<String> _selected = {};
 
   int _totalDays = 1;
@@ -47,50 +50,10 @@ class _BracketScreenState extends State<BracketScreen>
   String _dayFilter = 'all';
   List<PlayerStats> _rankings = [];
 
-  static const _decades = [
-    {
-      'key': '20',
-      'label': '20대',
-      'min': 20,
-      'max': 29,
-      'color': Color(0xFF553AB7)
-    },
-    {
-      'key': '30',
-      'label': '30대',
-      'min': 30,
-      'max': 39,
-      'color': Color(0xFF1A7A9F)
-    },
-    {
-      'key': '40',
-      'label': '40대',
-      'min': 40,
-      'max': 49,
-      'color': Color(0xFF1A3A8F)
-    },
-    {
-      'key': '50',
-      'label': '50대',
-      'min': 50,
-      'max': 59,
-      'color': Color(0xFF2A7D4F)
-    },
-    {
-      'key': '60',
-      'label': '60대',
-      'min': 60,
-      'max': 69,
-      'color': Color(0xFFB7791F)
-    },
-    {
-      'key': '70',
-      'label': '70대',
-      'min': 70,
-      'max': 79,
-      'color': Color(0xFF9C4221)
-    },
-  ];
+  /// "전체" 제외, 실제 연령 그룹 라벨 목록
+  List<String> get _ageGroupLabels =>
+      widget.tournament.ageGroups.where((l) => l != '전체').toList();
+
   static const _allGrades = ['A', 'B', 'C', 'D', '초심'];
   static const _venueColors = [
     '#1a3a8f',
@@ -112,9 +75,14 @@ class _BracketScreenState extends State<BracketScreen>
     for (int i = 0; i < SampleData.players.length; i++) {
       _selected.add(SampleData.players[i].id);
     }
-    for (final d in _decades) {
+    // 모든 연령 그룹을 기본 활성/펼침. ageGroups가 비어있으면 default 사용.
+    for (final label in _ageGroupLabels) {
+      _activeAgeGroups.add(label);
+      _openSections.add(label);
+    }
+    for (final label in _ageGroupLabels) {
       for (final g in _allGrades) {
-        _assignMap[AssignKey(d['key'] as String, g)] = 'v1';
+        _assignMap[AssignKey(label, g)] = 'v1';
       }
     }
   }
@@ -129,31 +97,17 @@ class _BracketScreenState extends State<BracketScreen>
 
   List<Player> get _filteredPlayers {
     var list = SampleData.players;
-    if (_type == '남복')
+    if (_type == '남복') {
       list = list.where((p) => p.gender == '남').toList();
-    else if (_type == '여복') list = list.where((p) => p.gender == '여').toList();
-    list = list.where((p) => _activeDecades.contains(_getDKey(p.age))).toList();
-    if (_ageView != '전체') {
-      final band =
-          _decades.firstWhere((d) => d['key'] == _ageView, orElse: () => {});
-      if (band.isNotEmpty) {
-        list = list
-            .where((p) =>
-                p.age >= (band['min'] as int) && p.age <= (band['max'] as int))
-            .toList();
-      }
+    } else if (_type == '여복') {
+      list = list.where((p) => p.gender == '여').toList();
     }
+    // 활성 연령 그룹 중 하나라도 매칭되어야 통과
+    list = list
+        .where((p) => _activeAgeGroups.any((l) => ageGroupMatches(l, p.age)))
+        .toList();
     if (_grade != '전체') list = list.where((p) => p.grade == _grade).toList();
     return list;
-  }
-
-  String _getDKey(int age) {
-    if (age < 30) return '20';
-    if (age < 40) return '30';
-    if (age < 50) return '40';
-    if (age < 60) return '50';
-    if (age < 70) return '60';
-    return '70';
   }
 
   void _generateBracket() {
@@ -203,37 +157,56 @@ class _BracketScreenState extends State<BracketScreen>
     return Scaffold(
       backgroundColor: AppColors.gray,
       appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        centerTitle: false,
+        titleSpacing: -4,
+        leadingWidth: 34,
+        leading: IconButton(
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(),
+          onPressed: () => Navigator.maybePop(context),
+          icon:
+              const Icon(Icons.arrow_back_ios_new, size: 20, color: _headerInk),
+        ),
         title: Text(widget.tournament.name,
-            style: const TextStyle(fontSize: 14),
+            style: const TextStyle(
+              fontSize: 19,
+              fontWeight: FontWeight.w700,
+              color: _headerInk,
+            ),
             overflow: TextOverflow.ellipsis),
         bottom: TabBar(
           controller: _tc,
+          labelColor: AppColors.blue,
+          unselectedLabelColor: AppColors.muted,
+          indicatorColor: AppColors.blue,
           tabs: [
             Tab(
                 child: Column(mainAxisSize: MainAxisSize.min, children: [
               const Text('참가자',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-              Text('$selCount명', style: const TextStyle(fontSize: 9)),
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+              Text('$selCount명', style: const TextStyle(fontSize: 11)),
             ])),
             Tab(
                 child: Column(mainAxisSize: MainAxisSize.min, children: [
               const Text('설정',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
               Text(
-                  '${_venues.fold(0, (s, v) => s + v.courts)}코트·${_totalDays}일',
-                  style: const TextStyle(fontSize: 9)),
+                  '${_venues.fold(0, (s, v) => s + v.courts)}코트·$_totalDays일',
+                  style: const TextStyle(fontSize: 11)),
             ])),
             Tab(
                 child: Column(mainAxisSize: MainAxisSize.min, children: [
               const Text('대진표',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
               Text(_matches.isEmpty ? '-' : '${_matches.length}경기',
-                  style: const TextStyle(fontSize: 9)),
+                  style: const TextStyle(fontSize: 11)),
             ])),
             const Tab(
                 child: Text('성적',
                     style:
-                        TextStyle(fontSize: 12, fontWeight: FontWeight.w600))),
+                        TextStyle(fontSize: 15, fontWeight: FontWeight.w600))),
           ],
         ),
       ),
@@ -264,34 +237,46 @@ class _ParticipantsTab extends StatelessWidget {
         options: const ['혼복', '남복', '여복'],
         selected: s._type,
         onSelect: (v) => s.rebuild(() => s._type = v),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
       ),
       _DecadeToggleBar(s),
-      _AgeChips(s),
       FilterChipRow(
-        options: const ['전체', 'A급', 'B급', 'C급', 'D급', '초심'],
-        selected: s._grade == '전체' ? '전체' : '${s._grade}급',
-        onSelect: (v) => s.rebuild(() => s._grade = v.replaceAll('급', '')),
+        options: const ['전체', 'A조', 'B조', 'C조', 'D조', '초심조'],
+        selected: s._grade,
+        onSelect: (v) => s.rebuild(() => s._grade = v),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
       ),
+      _SelectionSummary(s),
       Expanded(child: _AgedPlayerList(s)),
       Container(
         color: AppColors.gray,
-        padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+        padding: EdgeInsets.fromLTRB(
+          12,
+          10,
+          12,
+          12 + MediaQuery.of(context).padding.bottom, // 시스템 제스처 바 영역 확보
+        ),
         child: Column(children: [
           Container(
             decoration: BoxDecoration(
                 color: AppColors.white,
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: AppColors.gray2, width: .5)),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            margin: const EdgeInsets.only(bottom: 6),
             child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   const Text('선택된 참가자',
-                      style: TextStyle(fontSize: 13, color: AppColors.text2)),
+                      style: TextStyle(
+                          fontSize: 13,
+                          height: 1.1,
+                          color: AppColors.text2)),
                   Text('${s._selected.length}명',
                       style: const TextStyle(
                           fontSize: 15,
+                          height: 1.1,
                           fontWeight: FontWeight.w800,
                           color: AppColors.blue)),
                 ]),
@@ -299,20 +284,22 @@ class _ParticipantsTab extends StatelessWidget {
           Row(children: [
             Expanded(
                 child: OutlinedButton(
-                    onPressed: () => s.rebuild(() {
-                          for (final p in s._filteredPlayers)
-                            s._selected.add(p.id);
-                        }),
+                    onPressed: () {
+                      final ids =
+                          s._filteredPlayers.map((p) => p.id).toList();
+                      s.rebuild(() => s._selected.addAll(ids));
+                    },
                     style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 11)),
                     child: const Text('전체선택', style: TextStyle(fontSize: 13)))),
             const SizedBox(width: 8),
             Expanded(
                 child: OutlinedButton(
-                    onPressed: () => s.rebuild(() {
-                          for (final p in s._filteredPlayers)
-                            s._selected.remove(p.id);
-                        }),
+                    onPressed: () {
+                      final ids =
+                          s._filteredPlayers.map((p) => p.id).toList();
+                      s.rebuild(() => s._selected.removeAll(ids));
+                    },
                     style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 11)),
                     child: const Text('전체해제', style: TextStyle(fontSize: 13)))),
@@ -337,125 +324,104 @@ class _DecadeToggleBar extends StatelessWidget {
   const _DecadeToggleBar(this.s);
 
   @override
-  Widget build(BuildContext context) => Container(
-        color: AppColors.white,
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        child: Row(children: [
-          const Text('연령대',
-              style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.text2)),
-          const SizedBox(width: 8),
-          Expanded(
-              child: SingleChildScrollView(
+  Widget build(BuildContext context) {
+    final labels = s._ageGroupLabels;
+    return Container(
+      color: AppColors.white,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 3),
+      child: Row(children: [
+        const Text('연령대',
+            style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: AppColors.text2)),
+        const SizedBox(width: 6),
+        Expanded(
+          child: SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
-              children: _BracketScreenState._decades.map((d) {
-                final key = d['key'] as String;
-                final color = d['color'] as Color;
-                final on = s._activeDecades.contains(key);
+              children: labels.map((label) {
+                final on = s._activeAgeGroups.contains(label);
                 return Padding(
-                  padding: const EdgeInsets.only(right: 5),
+                  padding: const EdgeInsets.only(right: 7),
                   child: GestureDetector(
                     onTap: () {
                       s.rebuild(() {
                         if (on) {
-                          if (s._activeDecades.length <= 1) return;
-                          s._activeDecades.remove(key);
-                          if (s._ageView == key) s._ageView = '전체';
+                          s._activeAgeGroups.remove(label);
+                          s._openSections.remove(label);
                         } else {
-                          s._activeDecades.add(key);
+                          s._activeAgeGroups.add(label);
+                          s._openSections.add(label);
                         }
                       });
                     },
                     child: AnimatedContainer(
                       duration: const Duration(milliseconds: 120),
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 5),
+                          horizontal: 11, vertical: 4),
                       decoration: BoxDecoration(
-                          color: on ? Colors.white : AppColors.gray,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                              color: on ? color : Colors.transparent,
-                              width: 1.5)),
-                      child: Text('${d['label']}${on ? ' ✓' : ' +'}',
-                          style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: on ? color : AppColors.text2)),
+                        color: on
+                            ? const Color(0xFF2563EB)
+                            : const Color(0xFFEFF6FF),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                          color: on
+                              ? const Color(0xFF2563EB)
+                              : const Color(0xFFBFDBFE),
+                          width: 1.5,
+                        ),
+                      ),
+                      child: Text(
+                        '$label${on ? ' ✓' : ' +'}',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight:
+                              on ? FontWeight.w600 : FontWeight.w500,
+                          color:
+                              on ? Colors.white : const Color(0xFF2563EB),
+                          letterSpacing: -0.2,
+                        ),
+                      ),
                     ),
                   ),
                 );
               }).toList(),
             ),
-          )),
-        ]),
-      );
-}
-
-class _AgeChips extends StatelessWidget {
-  final _BracketScreenState s;
-  const _AgeChips(this.s);
-
-  @override
-  Widget build(BuildContext context) => Container(
-        color: AppColors.white,
-        padding: const EdgeInsets.fromLTRB(10, 6, 10, 8),
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(children: [
-            _chip(
-                '전체',
-                s._ageView == '전체',
-                null,
-                () => s.rebuild(() {
-                      s._ageView = '전체';
-                      s._openSections.addAll(s._activeDecades);
-                    })),
-            ..._BracketScreenState._decades
-                .where((d) => s._activeDecades.contains(d['key'] as String))
-                .map((d) {
-              final key = d['key'] as String;
-              final color = d['color'] as Color;
-              final on = s._ageView == key;
-              return _chip(
-                  d['label'] as String,
-                  on,
-                  color,
-                  () => s.rebuild(() {
-                        s._ageView = key;
-                        s._openSections
-                          ..clear()
-                          ..add(key);
-                      }));
-            }),
-          ]),
-        ),
-      );
-
-  Widget _chip(String label, bool on, Color? color, VoidCallback onTap) =>
-      Padding(
-        padding: const EdgeInsets.only(right: 5),
-        child: GestureDetector(
-          onTap: onTap,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 120),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-            decoration: BoxDecoration(
-                color: on ? (color ?? AppColors.blue2) : AppColors.gray,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                    color: on ? (color ?? AppColors.blue2) : Colors.transparent,
-                    width: 1.5)),
-            child: Text(label,
-                style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: on ? Colors.white : AppColors.text2)),
           ),
         ),
-      );
+      ]),
+    );
+  }
+}
+
+class _SelectionSummary extends StatelessWidget {
+  final _BracketScreenState s;
+  const _SelectionSummary(this.s);
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = s._filteredPlayers;
+    final selectedInFilter =
+        filtered.where((p) => s._selected.contains(p.id)).length;
+    return Container(
+      color: AppColors.white,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+      child: Row(children: [
+        Text('보이는 ${filtered.length}명',
+            style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: AppColors.muted)),
+        const Spacer(),
+        Text('선택 $selectedInFilter / ${s._selected.length}명',
+            style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: AppColors.blue)),
+      ]),
+    );
+  }
 }
 
 class _AgedPlayerList extends StatelessWidget {
@@ -465,36 +431,36 @@ class _AgedPlayerList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final filtered = s._filteredPlayers;
-    final activeBands = _BracketScreenState._decades
-        .where((d) => s._activeDecades.contains(d['key'] as String))
-        .toList();
+    final activeLabels =
+        s._ageGroupLabels.where(s._activeAgeGroups.contains).toList();
 
     final sections = <Widget>[];
-    for (final band in activeBands) {
-      final key = band['key'] as String;
-      if (s._ageView != '전체' && s._ageView != key) continue;
-      final min = band['min'] as int;
-      final max = band['max'] as int;
-      final arr = filtered.where((p) => p.age >= min && p.age <= max).toList();
+    for (final label in activeLabels) {
+      final arr =
+          filtered.where((p) => ageGroupMatches(label, p.age)).toList();
       if (arr.isEmpty) continue;
       final selCnt = arr.where((p) => s._selected.contains(p.id)).length;
-      final isOpen = s._openSections.contains(key);
-      final color = band['color'] as Color;
+      final isOpen = s._openSections.contains(label);
 
       sections.add(_AgeSectionTile(
-        label: band['label'] as String,
-        color: color,
+        label: label,
         total: arr.length,
         selected: selCnt,
         isOpen: isOpen,
         onToggle: () => s.rebuild(() {
-          isOpen ? s._openSections.remove(key) : s._openSections.add(key);
+          isOpen
+              ? s._openSections.remove(label)
+              : s._openSections.add(label);
         }),
         onSelectAll: () => s.rebuild(() {
-          for (final p in arr) s._selected.add(p.id);
+          for (final p in arr) {
+            s._selected.add(p.id);
+          }
         }),
         onDeselectAll: () => s.rebuild(() {
-          for (final p in arr) s._selected.remove(p.id);
+          for (final p in arr) {
+            s._selected.remove(p.id);
+          }
         }),
         children: isOpen
             ? arr
@@ -519,13 +485,15 @@ class _AgedPlayerList extends StatelessWidget {
           child: Text('해당하는 참가자가 없습니다.',
               style: TextStyle(color: AppColors.muted)));
     }
-    return ListView(children: sections);
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 16),
+      children: sections,
+    );
   }
 }
 
 class _AgeSectionTile extends StatelessWidget {
   final String label;
-  final Color color;
   final int total, selected, extra;
   final bool isOpen;
   final VoidCallback onToggle, onSelectAll, onDeselectAll;
@@ -533,7 +501,6 @@ class _AgeSectionTile extends StatelessWidget {
 
   const _AgeSectionTile({
     required this.label,
-    required this.color,
     required this.total,
     required this.selected,
     required this.extra,
@@ -549,42 +516,37 @@ class _AgeSectionTile extends StatelessWidget {
         GestureDetector(
           onTap: onToggle,
           child: Container(
-            color: const Color(0xFFF0F4FC),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+            color: const Color(0xFFF7F9FC),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
             child: Row(children: [
-              Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 9, vertical: 2),
-                  decoration: BoxDecoration(
-                      color: color, borderRadius: BorderRadius.circular(12)),
-                  child: Text(label,
-                      style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700))),
+              Text(label,
+                  style: const TextStyle(
+                      color: AppColors.text,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700)),
               const SizedBox(width: 8),
-              Text('$total명 · 선택 ${selected}명',
-                  style: const TextStyle(fontSize: 11, color: AppColors.muted)),
+              Text('$total명 · 선택 $selected명',
+                  style: const TextStyle(fontSize: 12, color: AppColors.muted)),
               const Spacer(),
               GestureDetector(
                   onTap: onSelectAll,
                   child: Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 7, vertical: 3),
+                          horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(
-                          border: Border.all(color: color),
+                          border: Border.all(color: AppColors.blue2),
                           borderRadius: BorderRadius.circular(6)),
-                      child: Text('전선택',
+                      child: const Text('전선택',
                           style: TextStyle(
                               fontSize: 11,
-                              color: color,
+                              color: AppColors.blue2,
                               fontWeight: FontWeight.w700)))),
               const SizedBox(width: 5),
               GestureDetector(
                   onTap: onDeselectAll,
                   child: Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 7, vertical: 3),
+                          horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(
                           border: Border.all(color: AppColors.gray3),
                           borderRadius: BorderRadius.circular(6)),
@@ -603,7 +565,7 @@ class _AgeSectionTile extends StatelessWidget {
               padding: const EdgeInsets.symmetric(vertical: 8),
               color: const Color(0xFFF8FAFC),
               child: Center(
-                  child: Text('외 ${extra}명 (급수 필터 이용)',
+                  child: Text('외 $extra명 (급수 필터 이용)',
                       style: const TextStyle(
                           fontSize: 12, color: AppColors.muted)))),
         Container(height: 2, color: AppColors.gray2),
@@ -619,6 +581,9 @@ class _SettingsTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SingleChildScrollView(
+        padding: EdgeInsets.only(
+          bottom: 20 + MediaQuery.of(context).padding.bottom,
+        ),
         child: Column(children: [
           _DateCard(s),
           _VenueSection(s),
@@ -634,7 +599,6 @@ class _SettingsTab extends StatelessWidget {
                   child: const Text('✦ 대진표 생성',
                       style: TextStyle(
                           fontSize: 15, fontWeight: FontWeight.w700)))),
-          const SizedBox(height: 20),
         ]),
       );
 }
@@ -890,10 +854,9 @@ class _AssignTable extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final activeBands = _BracketScreenState._decades
-        .where((d) => s._activeDecades.contains(d['key'] as String))
-        .toList();
-    if (activeBands.isEmpty) return const SizedBox();
+    final activeLabels =
+        s._ageGroupLabels.where(s._activeAgeGroups.contains).toList();
+    if (activeLabels.isEmpty) return const SizedBox();
 
     return _card(
       title: '연령·급수별 경기장 배정',
@@ -905,26 +868,24 @@ class _AssignTable extends StatelessWidget {
           defaultColumnWidth: const IntrinsicColumnWidth(),
           children: [
             TableRow(
-              decoration: const BoxDecoration(color: Color(0xFFF0F4FC)),
+              decoration: const BoxDecoration(color: Color(0xFFF7F9FC)),
               children: [
                 _th('연령\\급수'),
                 ..._BracketScreenState._allGrades.map(_th),
               ],
             ),
-            ...activeBands.map((band) {
-              final key = band['key'] as String;
-              final color = band['color'] as Color;
+            ...activeLabels.map((label) {
               return TableRow(children: [
                 Padding(
                   padding: const EdgeInsets.all(6),
-                  child: Text(band['label'] as String,
-                      style: TextStyle(
+                  child: Text(label,
+                      style: const TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w700,
-                          color: color)),
+                          color: AppColors.text2)),
                 ),
                 ..._BracketScreenState._allGrades.map((g) {
-                  final aKey = AssignKey(key, g);
+                  final aKey = AssignKey(label, g);
                   final curId = s._assignMap[aKey] ?? s._venues.first.id;
                   return Padding(
                     padding: const EdgeInsets.all(3),
@@ -1187,7 +1148,9 @@ class _BracketTab extends StatelessWidget {
               ));
             }
             return ListView(
-              padding: const EdgeInsets.only(bottom: 20),
+              padding: EdgeInsets.only(
+                bottom: 20 + MediaQuery.of(context).padding.bottom,
+              ),
               children: items,
             );
           },
@@ -1213,6 +1176,9 @@ class _ResultsTab extends StatelessWidget {
     }
     const medals = ['🥇', '🥈', '🥉'];
     return ListView.builder(
+      padding: EdgeInsets.only(
+        bottom: 20 + MediaQuery.of(context).padding.bottom,
+      ),
       itemCount: s._rankings.length,
       itemBuilder: (_, i) {
         final r = s._rankings[i];
