@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import '../../core/theme/app_colors.dart';
-import '../../models/club.dart';
 import '../../models/player.dart';
 import '../../services/sample_data.dart';
 import '../../widgets/common/filter_chips.dart';
+import '../../widgets/players/player_list_item.dart';
+import '../clubs/upload_screen.dart';
 import 'player_detail_screen.dart';
 import 'player_form_screen.dart';
-import '../clubs/upload_screen.dart';
 
 const _searchInk = Color(0xFF0D1B3E);
 const _searchMuted = Color(0xFF9BA8BB);
@@ -25,15 +25,18 @@ class _PlayerListScreenState extends State<PlayerListScreen> {
 
   List<Player> get _filtered {
     var list = SampleData.players.toList();
-    if (_gradeFilter != '전체')
+    if (_gradeFilter != '전체') {
       list = list.where((p) => p.grade == _gradeFilter).toList();
-    if (_genderFilter != '전체')
+    }
+    if (_genderFilter != '전체') {
       list = list.where((p) => p.gender == _genderFilter).toList();
+    }
     final q = _ctrl.text.trim();
-    if (q.isNotEmpty)
+    if (q.isNotEmpty) {
       list = list
           .where((p) => p.name.contains(q) || p.clubName.contains(q))
           .toList();
+    }
     list.sort((a, b) => a.name.compareTo(b.name));
     return list;
   }
@@ -61,7 +64,6 @@ class _PlayerListScreenState extends State<PlayerListScreen> {
               fontSize: 19, fontWeight: FontWeight.w700, color: _searchInk),
         ),
         actions: [
-          // ── 📤 엑셀 업로드 ──────────────────────
           IconButton(
             onPressed: () async {
               final result = await Navigator.push<bool>(
@@ -78,7 +80,6 @@ class _PlayerListScreenState extends State<PlayerListScreen> {
             icon: const Icon(Icons.upload_file_rounded, color: _searchAccent),
             tooltip: '엑셀 업로드',
           ),
-          // ── ➕ 직접 등록 ─────────────────────────
           TextButton.icon(
             onPressed: () async {
               await Navigator.push(context,
@@ -171,7 +172,7 @@ class _PlayerListScreenState extends State<PlayerListScreen> {
         Expanded(
           child: ListView.builder(
             itemCount: filtered.length,
-            itemBuilder: (ctx, i) => _PlayerItem(
+            itemBuilder: (ctx, i) => PlayerListItem(
               player: filtered[i],
               index: i + 1,
               onTap: () => Navigator.push(
@@ -184,123 +185,4 @@ class _PlayerListScreenState extends State<PlayerListScreen> {
       ]),
     );
   }
-}
-
-Color _gradePastelBg(String grade) {
-  switch (grade) {
-    case 'A조':
-      return const Color(0xFFDBEAFE);
-    case 'B조':
-      return const Color(0xFFD1FAE5);
-    case 'C조':
-      return const Color(0xFFFEF3C7);
-    case 'D조':
-      return const Color(0xFFFFE4E6);
-    case '초심조':
-      return const Color(0xFFF3E8FF);
-    case 'S조':
-      return const Color(0xFFE0F2FE);
-    default:
-      return const Color(0xFFF1F5F9);
-  }
-}
-
-Color _gradePastelFg(String grade) {
-  switch (grade) {
-    case 'A조':
-      return const Color(0xFF1E40AF);
-    case 'B조':
-      return const Color(0xFF065F46);
-    case 'C조':
-      return const Color(0xFF92400E);
-    case 'D조':
-      return const Color(0xFF9F1239);
-    case '초심조':
-      return const Color(0xFF6B21A8);
-    case 'S조':
-      return const Color(0xFF075985);
-    default:
-      return const Color(0xFF6B7A99);
-  }
-}
-
-class _PlayerItem extends StatelessWidget {
-  final Player player;
-  final int index;
-  final VoidCallback onTap;
-  const _PlayerItem(
-      {required this.player, required this.index, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) => InkWell(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-          decoration: const BoxDecoration(
-              color: AppColors.white,
-              border: Border(bottom: BorderSide(color: AppColors.divider))),
-          child: Row(children: [
-            SizedBox(
-                width: 28,
-                child: Text('$index',
-                    style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.muted),
-                    textAlign: TextAlign.center)),
-            const SizedBox(width: 8),
-            Expanded(
-                child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(children: [
-                  Text(player.name,
-                      style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.text,
-                          height: 1.25)),
-                  const SizedBox(width: 4),
-                  Text('(${player.gender}) ${player.age}세',
-                      style: const TextStyle(
-                          fontSize: 11,
-                          color: Color(0xFF1A1A1A),
-                          fontWeight: FontWeight.w500,
-                          height: 1.25)),
-                ]),
-                const SizedBox(height: 2),
-                Text(
-                    SampleData.clubs
-                        .firstWhere((c) => c.id == player.clubId,
-                            orElse: () => const Club(id: '', name: ''))
-                        .name,
-                    style: const TextStyle(
-                        fontSize: 13, color: Color(0xFF1A1A1A), height: 1.25)),
-              ],
-            )),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: _gradePastelBg(player.grade),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(player.grade,
-                      style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w800,
-                          color: _gradePastelFg(player.grade))),
-                ),
-                const SizedBox(height: 2),
-                Text(player.phone,
-                    style: const TextStyle(
-                        fontSize: 13, color: Color(0xFF1A1A1A))),
-              ],
-            ),
-          ]),
-        ),
-      );
 }

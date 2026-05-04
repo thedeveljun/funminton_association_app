@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:badminton_association/screens/players/player_list_screen.dart';
 import '../../services/sample_data.dart';
 import '../clubs/club_list_screen.dart';
-import '../players/player_list_screen.dart';
 import '../tournaments/tournament_list_screen.dart';
 import '../finance/finance_screen.dart';
 import '../rankings/rankings_screen.dart';
@@ -65,7 +65,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           iconColor: const Color(0xFF22A06B),
                           iconBgColor: const Color(0xFFD1FAE5),
                           subtitleColor: const Color(0xFF22A06B),
-                          onTap: () => _go(const PlayerListScreen()),
+                          onTap: () => _go(PlayerListScreen()),
                         ),
                       ),
                     ],

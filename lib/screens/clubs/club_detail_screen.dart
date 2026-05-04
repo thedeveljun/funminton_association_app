@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:badminton_association/screens/players/player_list_screen.dart';
 import '../../core/theme/app_colors.dart';
 import '../../models/club.dart';
 import '../../models/player.dart';
 import '../../services/sample_data.dart';
 import '../../widgets/common/section_header.dart';
-import '../players/player_list_screen.dart';
 import 'club_form_screen.dart';
 
 class ClubDetailScreen extends StatefulWidget {
@@ -151,7 +151,7 @@ class _ClubDetailScreenState extends State<ClubDetailScreen> {
                       onPressed: () => Navigator.push(
                           context,
                           MaterialPageRoute(
-                              builder: (_) => const PlayerListScreen())),
+                              builder: (_) => PlayerListScreen())),
                       child: const Text('선수 목록'))),
               const SizedBox(width: 10),
               Expanded(
