@@ -22,7 +22,12 @@ const _headerInk = Color(0xFF0D1B3E);
 // ═══════════════════════════════════════════════════════
 class BracketScreen extends StatefulWidget {
   final Tournament tournament;
-  const BracketScreen({super.key, required this.tournament});
+  final int initialTabIndex;
+  const BracketScreen({
+    super.key,
+    required this.tournament,
+    this.initialTabIndex = 0,
+  });
 
   @override
   State<BracketScreen> createState() => _BracketScreenState();
@@ -44,10 +49,8 @@ class _BracketScreenState extends State<BracketScreen>
   final _date1Ctrl = TextEditingController(text: '2026-05-10');
   final _date2Ctrl = TextEditingController(text: '2026-05-11');
   late List<Venue> _venues;
-  int _venueIdCounter = 1;
   final Map<AssignKey, String> _assignMap = {};
   Timer? _persistDebounce;
-  static const int _maxVenueCount = 5;
   static const int _maxCourtsPerVenue = 10;
 
   List<Match> _matches = [];
@@ -73,7 +76,11 @@ class _BracketScreenState extends State<BracketScreen>
   void initState() {
     super.initState();
     _tournament = widget.tournament;
-    _tc = TabController(length: 4, vsync: this);
+    _tc = TabController(
+      length: 4,
+      vsync: this,
+      initialIndex: widget.initialTabIndex,
+    );
     for (int i = 0; i < SampleData.players.length; i++) {
       _selected.add(SampleData.players[i].id);
     }
@@ -97,7 +104,6 @@ class _BracketScreenState extends State<BracketScreen>
                     : Venue.defaultColors[e.key % Venue.defaultColors.length],
               ))
           .toList();
-      _venueIdCounter = _venues.length + 1;
     } else {
       _venues = [
         Venue(
@@ -108,7 +114,6 @@ class _BracketScreenState extends State<BracketScreen>
           colorHex: Venue.defaultColors[0],
         ),
       ];
-      _venueIdCounter = 2;
     }
 
     for (final label in _ageGroupLabels) {
@@ -145,38 +150,6 @@ class _BracketScreenState extends State<BracketScreen>
     } else {
       _persistTournament();
     }
-  }
-
-  void _setVenueCount(int n) {
-    final clamped = n.clamp(1, _maxVenueCount);
-    if (clamped == _venues.length) return;
-    setState(() {
-      if (clamped > _venues.length) {
-        while (_venues.length < clamped) {
-          final i = _venues.length;
-          _venues.add(Venue(
-            id: 'v${_venueIdCounter++}',
-            name: '',
-            address: '',
-            courts: Tournament.defaultCourtsPerVenue,
-            colorHex: Venue.defaultColors[i % Venue.defaultColors.length],
-          ));
-        }
-      } else {
-        final removed = _venues.sublist(clamped);
-        _venues.removeRange(clamped, _venues.length);
-        // 삭제된 venue 에 매핑된 assignMap → 첫 venue 로 재배정
-        final firstId = _venues.first.id;
-        for (final r in removed) {
-          for (final key in _assignMap.keys.toList()) {
-            if (_assignMap[key] == r.id) {
-              _assignMap[key] = firstId;
-            }
-          }
-        }
-      }
-      _syncVenuesToTournament(debounce: false);
-    });
   }
 
   void _updateVenueName(int i, String name) {
@@ -1040,23 +1013,21 @@ class _SettingsTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) => SingleChildScrollView(
         padding: EdgeInsets.only(
-          bottom: 20 + MediaQuery.of(context).padding.bottom,
+          bottom: 12 + MediaQuery.of(context).padding.bottom,
         ),
         child: Column(children: [
           _DateCard(s),
-          _AutoCourtTotalCard(s),
-          _VenueCountCounterCard(s),
           ...List.generate(s._venues.length,
               (i) => _VenueEditCard(s: s, index: i)),
           _AssignTable(s),
           _CourtSummary(s),
           Container(
               width: double.infinity,
-              margin: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+              margin: const EdgeInsets.fromLTRB(12, 6, 12, 4),
               child: ElevatedButton(
                   onPressed: s._generateBracket,
                   style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14)),
+                      padding: const EdgeInsets.symmetric(vertical: 11)),
                   child: const Text('✦ 대진표 생성',
                       style: TextStyle(
                           fontSize: 15, fontWeight: FontWeight.w700)))),
@@ -1075,12 +1046,15 @@ class _DateCard extends StatelessWidget {
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           const Text('1일차',
               style: TextStyle(fontSize: 11, color: AppColors.muted)),
-          const SizedBox(height: 4),
+          const SizedBox(height: 2),
           TextField(
               controller: s._date1Ctrl,
               decoration: const InputDecoration(
+                  isDense: true,
+                  contentPadding:
+                      EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   suffixIcon: Icon(Icons.calendar_today, size: 16))),
-          const SizedBox(height: 10),
+          const SizedBox(height: 6),
           Row(children: [
             _dayBtn('1일 대회', s._totalDays == 1,
                 () => s.rebuild(() => s._totalDays = 1)),
@@ -1089,25 +1063,27 @@ class _DateCard extends StatelessWidget {
                 () => s.rebuild(() => s._totalDays = 2)),
           ]),
           if (s._totalDays == 2) ...[
-            const SizedBox(height: 10),
+            const SizedBox(height: 6),
             const Text('2일차',
                 style: TextStyle(fontSize: 11, color: AppColors.muted)),
-            const SizedBox(height: 4),
+            const SizedBox(height: 2),
             TextField(
                 controller: s._date2Ctrl,
                 decoration: const InputDecoration(
+                    isDense: true,
+                    contentPadding:
+                        EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                     suffixIcon: Icon(Icons.calendar_today, size: 16))),
           ],
         ]),
       );
 
-  // ★ BuildContext 파라미터 제거 — 불필요
   Widget _dayBtn(String lbl, bool on, VoidCallback onTap) => Expanded(
         child: GestureDetector(
           onTap: onTap,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 120),
-            padding: const EdgeInsets.symmetric(vertical: 10),
+            padding: const EdgeInsets.symmetric(vertical: 6),
             decoration: BoxDecoration(
                 color: on ? AppColors.blue2 : AppColors.gray,
                 borderRadius: BorderRadius.circular(8),
@@ -1125,168 +1101,30 @@ class _DateCard extends StatelessWidget {
       );
 }
 
-/// 사용 코트 수 (자동 합계, 작은 카드)
-class _AutoCourtTotalCard extends StatelessWidget {
-  final _BracketScreenState s;
-  const _AutoCourtTotalCard(this.s);
-
-  @override
-  Widget build(BuildContext context) {
-    final total =
-        s._venues.fold<int>(0, (sum, v) => sum + (v.courts > 0 ? v.courts : 0));
-    return Container(
-      margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.primaryLight, width: 1.5),
-      ),
-      child: Column(children: [
-        const Text('사용 코트 수',
-            style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                color: AppColors.text2)),
-        const SizedBox(height: 6),
-        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          const _CounterButton(
-              icon: Icons.remove, enabled: false, onTap: null),
-          const SizedBox(width: 14),
-          Container(
-            width: 56,
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: AppColors.primaryLight,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              '$total',
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-                color: AppColors.primaryMid,
-              ),
-            ),
-          ),
-          const SizedBox(width: 14),
-          const _CounterButton(
-              icon: Icons.add, enabled: false, onTap: null),
-        ]),
-        const SizedBox(height: 4),
-        const Text('코트',
-            style: TextStyle(fontSize: 12, color: AppColors.muted)),
-        const SizedBox(height: 6),
-        const Text('경기장별 코트 수 합계입니다.',
-            style: TextStyle(fontSize: 11, color: AppColors.muted)),
-      ]),
-    );
-  }
-}
-
-/// 사용 경기장 수 카운터 (큰 카드)
-class _VenueCountCounterCard extends StatelessWidget {
-  final _BracketScreenState s;
-  const _VenueCountCounterCard(this.s);
-
-  @override
-  Widget build(BuildContext context) {
-    final count = s._venues.length;
-    final canDec = count > 1;
-    final canInc = count < _BracketScreenState._maxVenueCount;
-    return Container(
-      margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.primaryLight, width: 1.5),
-      ),
-      child: Column(children: [
-        const Text('사용 경기장 수',
-            style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-                color: AppColors.text2)),
-        const SizedBox(height: 10),
-        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          _CounterButton(
-            icon: Icons.remove,
-            enabled: canDec,
-            onTap: canDec ? () => s._setVenueCount(count - 1) : null,
-            size: 44,
-            iconSize: 24,
-          ),
-          const SizedBox(width: 18),
-          Container(
-            width: 80,
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: AppColors.primaryLight,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Text(
-              '$count',
-              style: const TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.w800,
-                color: AppColors.primaryMid,
-              ),
-            ),
-          ),
-          const SizedBox(width: 18),
-          _CounterButton(
-            icon: Icons.add,
-            enabled: canInc,
-            onTap: canInc ? () => s._setVenueCount(count + 1) : null,
-            size: 44,
-            iconSize: 24,
-          ),
-        ]),
-        const SizedBox(height: 6),
-        const Text('개',
-            style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: AppColors.text2)),
-        const SizedBox(height: 8),
-        const Text('+ 누르면 경기장 추가, − 누르면 마지막 경기장 제거',
-            style: TextStyle(fontSize: 11, color: AppColors.muted)),
-      ]),
-    );
-  }
-}
-
 /// 공용 ⊖/⊕ 동그라미 버튼
 class _CounterButton extends StatelessWidget {
   final IconData icon;
   final bool enabled;
   final VoidCallback? onTap;
-  final double size;
-  final double iconSize;
   const _CounterButton({
     required this.icon,
     required this.enabled,
     required this.onTap,
-    this.size = 32,
-    this.iconSize = 18,
   });
 
   @override
   Widget build(BuildContext context) => GestureDetector(
         onTap: onTap,
         child: Container(
-          width: size,
-          height: size,
+          width: 28,
+          height: 28,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: enabled ? AppColors.primaryMid : AppColors.gray,
           ),
           child: Icon(
             icon,
-            size: iconSize,
+            size: 16,
             color: enabled ? Colors.white : AppColors.gray3,
           ),
         ),
@@ -1335,11 +1173,11 @@ class _VenueEditCardState extends State<_VenueEditCard> {
     final v = widget.s._venues[widget.index];
     final disabled = v.courts == 0;
     return Container(
-      margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-      padding: const EdgeInsets.all(14),
+      margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: disabled ? AppColors.gray : AppColors.white,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(color: AppColors.divider, width: 1),
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -1366,17 +1204,19 @@ class _VenueEditCardState extends State<_VenueEditCard> {
             ),
           ],
         ]),
-        const SizedBox(height: 10),
+        const SizedBox(height: 6),
         TextField(
           controller: _nameCtrl,
           decoration: const InputDecoration(
             labelText: '대회장소',
             hintText: '예: 과천시민체육관',
             isDense: true,
+            contentPadding:
+                EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           ),
           onChanged: (val) => widget.s._updateVenueName(widget.index, val),
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 6),
         TextField(
           controller: _addrCtrl,
           decoration: const InputDecoration(
@@ -1385,12 +1225,14 @@ class _VenueEditCardState extends State<_VenueEditCard> {
             prefixIcon:
                 Icon(Icons.location_on_outlined, size: 18, color: AppColors.gray3),
             isDense: true,
+            contentPadding:
+                EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           ),
           maxLines: 1,
           onChanged: (val) =>
               widget.s._updateVenueAddress(widget.index, val),
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 6),
         Row(children: [
           const Text('코트 수',
               style: TextStyle(
@@ -1405,9 +1247,9 @@ class _VenueEditCardState extends State<_VenueEditCard> {
                 ? () => widget.s._updateVenueCourts(widget.index, v.courts - 1)
                 : null,
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           SizedBox(
-            width: 32,
+            width: 28,
             child: Text(
               '${v.courts}',
               textAlign: TextAlign.center,
@@ -1418,7 +1260,7 @@ class _VenueEditCardState extends State<_VenueEditCard> {
               ),
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           _CounterButton(
             icon: Icons.add,
             enabled: v.courts < _BracketScreenState._maxCourtsPerVenue,
@@ -1461,7 +1303,7 @@ class _AssignTable extends StatelessWidget {
             ...activeLabels.map((label) {
               return TableRow(children: [
                 Padding(
-                  padding: const EdgeInsets.all(6),
+                  padding: const EdgeInsets.all(4),
                   child: Text(label,
                       style: const TextStyle(
                           fontSize: 11,
@@ -1472,7 +1314,7 @@ class _AssignTable extends StatelessWidget {
                   final aKey = AssignKey(label, g);
                   final curId = s._assignMap[aKey] ?? s._venues.first.id;
                   return Padding(
-                    padding: const EdgeInsets.all(3),
+                    padding: const EdgeInsets.all(2),
                     child: DropdownButton<String>(
                       value: s._venues.any((v) => v.id == curId)
                           ? curId
@@ -1507,7 +1349,7 @@ class _AssignTable extends StatelessWidget {
   }
 
   Widget _th(String t) => Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
       child: Text(t,
           style: const TextStyle(
               fontSize: 11,
@@ -1532,7 +1374,7 @@ class _CourtSummary extends StatelessWidget {
               col = AppColors.blue;
             }
             return Padding(
-              padding: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.only(bottom: 4),
               child: Row(children: [
                 Container(
                     width: 10,
@@ -1552,7 +1394,7 @@ class _CourtSummary extends StatelessWidget {
               ]),
             );
           }),
-          const Divider(),
+          const Divider(height: 12),
           Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
             const Text('합계',
                 style: TextStyle(
@@ -1840,12 +1682,12 @@ class _ResultsTab extends StatelessWidget {
 Widget _card(
         {required String title, String? subtitle, required Widget child}) =>
     Container(
-      margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+      margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
       decoration: BoxDecoration(
           color: AppColors.white,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(10),
           border: Border.all(color: AppColors.gray2, width: .5)),
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(10),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
           Text(title,
@@ -1859,7 +1701,7 @@ Widget _card(
                 style: const TextStyle(fontSize: 11, color: AppColors.muted)),
           ],
         ]),
-        const SizedBox(height: 10),
+        const SizedBox(height: 6),
         child,
       ]),
     );

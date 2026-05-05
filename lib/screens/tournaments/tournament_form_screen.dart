@@ -32,6 +32,7 @@ class _TournamentFormScreenState extends State<TournamentFormScreen> {
   final List<int> _venueCourts = [];
 
   static const int _defaultCourts = 4;
+  static const int _maxCourtsPerVenue = 10;
 
   // ── 경기 정보 ──────────────────────────
   /// 선택된 종별 (List). 최소 1개 이상 유지.
@@ -753,6 +754,45 @@ class _TournamentFormScreenState extends State<TournamentFormScreen> {
             label: '위치',
             child: _f(_venueAddrCtrls[i], hint: '예: 경기도 과천시 ...'),
             leadingIcon: Icons.place_outlined,
+          ),
+          const SizedBox(height: 6),
+          _venueRow(
+            label: '코트 수',
+            child: Row(children: [
+              _stepperBtn(
+                icon: Icons.remove,
+                enabled: _venueCourts[i] > 0,
+                onTap: () => setState(() {
+                  if (_venueCourts[i] > 0) {
+                    _venueCourts[i] = _venueCourts[i] - 1;
+                  }
+                }),
+              ),
+              SizedBox(
+                width: 36,
+                child: Text(
+                  '${_venueCourts[i]}',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.text,
+                  ),
+                ),
+              ),
+              _stepperBtn(
+                icon: Icons.add,
+                enabled: _venueCourts[i] < _maxCourtsPerVenue,
+                onTap: () => setState(() {
+                  if (_venueCourts[i] < _maxCourtsPerVenue) {
+                    _venueCourts[i] = _venueCourts[i] + 1;
+                  }
+                }),
+              ),
+              const SizedBox(width: 8),
+              const Text('코트',
+                  style: TextStyle(fontSize: 12, color: AppColors.muted)),
+            ]),
           ),
         ],
       ),

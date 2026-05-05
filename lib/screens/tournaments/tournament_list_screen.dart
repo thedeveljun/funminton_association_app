@@ -162,11 +162,26 @@ class _TournamentListScreenState extends State<TournamentListScreen>
   void _onBracket(Tournament t) {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => BracketScreen(tournament: t)),
+      MaterialPageRoute(
+        builder: (_) => BracketScreen(
+          tournament: t,
+          initialTabIndex: 2, // 대진표 탭
+        ),
+      ),
     );
   }
 
-  void _onApply(Tournament t) {}
+  void _onApply(Tournament t) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => BracketScreen(
+          tournament: t,
+          initialTabIndex: 0, // 참가자 탭
+        ),
+      ),
+    );
+  }
 
   // 카드 ⋮ 메뉴 액션 — 수정
   Future<void> _onEditTournament(Tournament t) async {
