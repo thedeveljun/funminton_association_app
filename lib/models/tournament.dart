@@ -47,21 +47,33 @@ class Tournament {
   final bool acceptsDonation; // 찬조(개인/기업) 받는 대회 여부
 
   // ── 연령 그룹 ────────────────────────────
-  /// 대회별 연령 그룹 라벨. 예: ['전체', '40대', '45대', '50대', '60대']
-  /// 라벨 규칙: "X0대" → [X0, X0+10), "X5대" → [X5, X5+5), "전체" → 모든 연령
-  /// TODO: tournament_form_screen에서 편집 가능하도록 UI 연결
+  /// 대회별 연령 그룹 라벨. 예: ['전체', '40', '45', '50', '60']
+  /// 라벨 규칙: 5세 단위 — 라벨 N → [N, N+5)
+  /// 옛 형식("20대"/"45대")은 fromMap 단계에서 '대'를 strip하여 호환.
   final List<String> ageGroups;
 
   static const List<String> defaultAgeGroups = [
     '전체',
-    '20대',
-    '30대',
-    '40대',
-    '45대',
-    '50대',
-    '55대',
-    '60대',
-    '70대',
+    '20',
+    '30',
+    '40',
+    '50',
+    '60',
+    '70',
+  ];
+
+  // ── 급수 그룹 ────────────────────────────
+  /// 대회별 급수 그룹 라벨. 예: ['전체', 'A조', 'B조', 'C조', 'D조', '초심조']
+  /// '전체'는 마스터 토글 표식. 나머지는 Player.grade 와 1:1 매칭.
+  final List<String> gradeGroups;
+
+  static const List<String> defaultGradeGroups = [
+    '전체',
+    'A조',
+    'B조',
+    'C조',
+    'D조',
+    '초심조',
   ];
 
   /// 경기장별 코트 수 — venue 필드와 같은 순서, 콤마 구분
@@ -94,6 +106,7 @@ class Tournament {
     this.hasClubShare = false,
     this.acceptsDonation = false,
     this.ageGroups = defaultAgeGroups,
+    this.gradeGroups = defaultGradeGroups,
     this.venueCourts = '',
   });
 
@@ -190,6 +203,7 @@ class Tournament {
     bool? hasClubShare,
     bool? acceptsDonation,
     List<String>? ageGroups,
+    List<String>? gradeGroups,
     String? venueCourts,
   }) =>
       Tournament(
@@ -213,6 +227,7 @@ class Tournament {
         hasClubShare: hasClubShare ?? this.hasClubShare,
         acceptsDonation: acceptsDonation ?? this.acceptsDonation,
         ageGroups: ageGroups ?? this.ageGroups,
+        gradeGroups: gradeGroups ?? this.gradeGroups,
         venueCourts: venueCourts ?? this.venueCourts,
       );
 
@@ -238,6 +253,7 @@ class Tournament {
         'has_club_share': hasClubShare ? 1 : 0,
         'accepts_donation': acceptsDonation ? 1 : 0,
         'age_groups': ageGroups.join(','),
+        'grade_groups': gradeGroups.join(','),
         'venue_courts': venueCourts,
       };
 
@@ -269,11 +285,22 @@ class Tournament {
           if (raw is String && raw.isNotEmpty) {
             return raw
                 .split(',')
-                .map((s) => s.trim())
+                .map((s) => s.trim().replaceAll('대', ''))
                 .where((s) => s.isNotEmpty)
                 .toList();
           }
           return defaultAgeGroups;
+        }(),
+        gradeGroups: () {
+          final raw = m['grade_groups'];
+          if (raw is String && raw.isNotEmpty) {
+            return raw
+                .split(',')
+                .map((s) => s.trim())
+                .where((s) => s.isNotEmpty)
+                .toList();
+          }
+          return defaultGradeGroups;
         }(),
         venueCourts: m['venue_courts'] ?? '',
       );
