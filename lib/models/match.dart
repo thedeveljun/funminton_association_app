@@ -112,30 +112,6 @@ class Match {
       );
 }
 
-/// 경기장(venue) 설정
-class VenueConfig {
-  final String id;
-  String name;
-  int courts;
-  String colorHex;
-
-  VenueConfig({
-    required this.id,
-    required this.name,
-    this.courts = 4,
-    this.colorHex = '#1a3a8f',
-  });
-
-  static const defaultColors = [
-    '#1a3a8f',
-    '#2a7d4f',
-    '#9c4221',
-    '#553ab7',
-    '#b7791f',
-    '#1a7a9f',
-  ];
-}
-
 /// 연령·급수별 경기장 배정 키
 class AssignKey {
   final String decadeKey; // '20','30','40','50','60','70'

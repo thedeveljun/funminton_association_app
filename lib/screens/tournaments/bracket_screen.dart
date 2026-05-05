@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../core/theme/app_colors.dart';
 import '../../models/match.dart';
 import '../../models/player.dart';
 import '../../models/tournament.dart';
+import '../../models/venue.dart';
 import '../../services/bracket_service.dart';
 import '../../services/sample_data.dart';
 import '../../services/storage_service.dart';
@@ -41,11 +43,12 @@ class _BracketScreenState extends State<BracketScreen>
   int _totalDays = 1;
   final _date1Ctrl = TextEditingController(text: '2026-05-10');
   final _date2Ctrl = TextEditingController(text: '2026-05-11');
-  final List<VenueConfig> _venues = [
-    VenueConfig(id: 'v1', name: '제1경기장', courts: 6, colorHex: '#1a3a8f'),
-  ];
-  int _venueIdCounter = 2;
+  late List<Venue> _venues;
+  int _venueIdCounter = 1;
   final Map<AssignKey, String> _assignMap = {};
+  Timer? _persistDebounce;
+  static const int _maxVenueCount = 5;
+  static const int _maxCourtsPerVenue = 10;
 
   List<Match> _matches = [];
   String _venueFilter = 'all';
@@ -61,14 +64,6 @@ class _BracketScreenState extends State<BracketScreen>
       _tournament.gradeGroups.where((l) => l != '전체').toList();
 
   static const _allGrades = ['A', 'B', 'C', 'D', '초심'];
-  static const _venueColors = [
-    '#1a3a8f',
-    '#2a7d4f',
-    '#9c4221',
-    '#553ab7',
-    '#b7791f',
-    '#1a7a9f'
-  ];
 
   void rebuild(VoidCallback fn) {
     if (mounted) setState(fn);
@@ -88,9 +83,37 @@ class _BracketScreenState extends State<BracketScreen>
       _openSections.add(label);
     }
     _activeGrades.addAll(_gradeGroupLabels);
+
+    // venues 하이드레이트: 저장된 venues 가 있으면 사용, 없으면 기본 1개 생성.
+    final stored = _tournament.venues;
+    if (stored.isNotEmpty) {
+      _venues = stored
+          .asMap()
+          .entries
+          .map((e) => e.value.copyWith(
+                id: e.value.id.isNotEmpty ? e.value.id : 'v${e.key + 1}',
+                colorHex: e.value.colorHex.isNotEmpty
+                    ? e.value.colorHex
+                    : Venue.defaultColors[e.key % Venue.defaultColors.length],
+              ))
+          .toList();
+      _venueIdCounter = _venues.length + 1;
+    } else {
+      _venues = [
+        Venue(
+          id: 'v1',
+          name: '',
+          address: '',
+          courts: Tournament.defaultCourtsPerVenue,
+          colorHex: Venue.defaultColors[0],
+        ),
+      ];
+      _venueIdCounter = 2;
+    }
+
     for (final label in _ageGroupLabels) {
       for (final g in _allGrades) {
-        _assignMap[AssignKey(label, g)] = 'v1';
+        _assignMap[AssignKey(label, g)] = _venues.first.id;
       }
     }
   }
@@ -102,6 +125,81 @@ class _BracketScreenState extends State<BracketScreen>
       SampleData.tournaments[idx] = _tournament;
     }
     StorageService.saveTournaments(SampleData.tournaments);
+  }
+
+  void _persistTournamentDebounced() {
+    _persistDebounce?.cancel();
+    _persistDebounce = Timer(
+      const Duration(milliseconds: 500),
+      _persistTournament,
+    );
+  }
+
+  // ── Venue 편집 ──────────────────────────────────
+  /// _venues 와 _tournament.venues 를 동기화 후 저장 (디바운스).
+  void _syncVenuesToTournament({bool debounce = true}) {
+    _tournament =
+        _tournament.copyWith(venues: _venues.map((v) => v.copyWith()).toList());
+    if (debounce) {
+      _persistTournamentDebounced();
+    } else {
+      _persistTournament();
+    }
+  }
+
+  void _setVenueCount(int n) {
+    final clamped = n.clamp(1, _maxVenueCount);
+    if (clamped == _venues.length) return;
+    setState(() {
+      if (clamped > _venues.length) {
+        while (_venues.length < clamped) {
+          final i = _venues.length;
+          _venues.add(Venue(
+            id: 'v${_venueIdCounter++}',
+            name: '',
+            address: '',
+            courts: Tournament.defaultCourtsPerVenue,
+            colorHex: Venue.defaultColors[i % Venue.defaultColors.length],
+          ));
+        }
+      } else {
+        final removed = _venues.sublist(clamped);
+        _venues.removeRange(clamped, _venues.length);
+        // 삭제된 venue 에 매핑된 assignMap → 첫 venue 로 재배정
+        final firstId = _venues.first.id;
+        for (final r in removed) {
+          for (final key in _assignMap.keys.toList()) {
+            if (_assignMap[key] == r.id) {
+              _assignMap[key] = firstId;
+            }
+          }
+        }
+      }
+      _syncVenuesToTournament(debounce: false);
+    });
+  }
+
+  void _updateVenueName(int i, String name) {
+    if (i < 0 || i >= _venues.length) return;
+    _venues[i] = _venues[i].copyWith(name: name);
+    _syncVenuesToTournament();
+    if (mounted) setState(() {});
+  }
+
+  void _updateVenueAddress(int i, String address) {
+    if (i < 0 || i >= _venues.length) return;
+    _venues[i] = _venues[i].copyWith(address: address);
+    _syncVenuesToTournament();
+  }
+
+  void _updateVenueCourts(int i, int courts) {
+    if (i < 0 || i >= _venues.length) return;
+    final clamped = courts.clamp(0, _maxCourtsPerVenue);
+    if (_venues[i].courts == clamped) return;
+    setState(() {
+      _venues[i] = _venues[i].copyWith(courts: clamped);
+      _syncVenuesToTournament(debounce: false);
+    });
   }
 
   void _addAgeGroup(String label) {
@@ -158,6 +256,11 @@ class _BracketScreenState extends State<BracketScreen>
 
   @override
   void dispose() {
+    _persistDebounce?.cancel();
+    if (_persistDebounce != null) {
+      // 디바운스 대기 중인 변경사항 즉시 저장
+      _persistTournament();
+    }
     _tc.dispose();
     _date1Ctrl.dispose();
     _date2Ctrl.dispose();
@@ -941,7 +1044,10 @@ class _SettingsTab extends StatelessWidget {
         ),
         child: Column(children: [
           _DateCard(s),
-          _VenueSection(s),
+          _AutoCourtTotalCard(s),
+          _VenueCountCounterCard(s),
+          ...List.generate(s._venues.length,
+              (i) => _VenueEditCard(s: s, index: i)),
           _AssignTable(s),
           _CourtSummary(s),
           Container(
@@ -1019,188 +1125,311 @@ class _DateCard extends StatelessWidget {
       );
 }
 
-class _VenueSection extends StatelessWidget {
+/// 사용 코트 수 (자동 합계, 작은 카드)
+class _AutoCourtTotalCard extends StatelessWidget {
   final _BracketScreenState s;
-  const _VenueSection(this.s);
+  const _AutoCourtTotalCard(this.s);
 
   @override
-  Widget build(BuildContext context) => Column(children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
-          child:
-              Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            const Text('경기장 설정',
-                style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.text2)),
-            Text('${s._venues.length}개 운영 중',
-                style: const TextStyle(fontSize: 11, color: AppColors.muted)),
-          ]),
-        ),
-        ...s._venues.asMap().entries.map((e) => _VenueCard(s, e.value, e.key)),
-        if (s._venues.length < 6)
-          GestureDetector(
-            onTap: () {
-              final idx =
-                  s._venues.length % _BracketScreenState._venueColors.length;
-              s.rebuild(() {
-                s._venues.add(VenueConfig(
-                  id: 'v${s._venueIdCounter++}',
-                  name: '제${s._venues.length + 1}경기장',
-                  courts: 4,
-                  colorHex: _BracketScreenState._venueColors[idx],
-                ));
-              });
-            },
-            child: Container(
-                width: double.infinity,
-                margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                decoration: BoxDecoration(
-                    color: AppColors.white,
-                    border: Border.all(color: AppColors.gray3, width: 1.5),
-                    borderRadius: BorderRadius.circular(12)),
-                child: const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.add, size: 16, color: AppColors.muted),
-                      SizedBox(width: 4),
-                      Text('경기장 추가',
-                          style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.muted)),
-                    ])),
+  Widget build(BuildContext context) {
+    final total =
+        s._venues.fold<int>(0, (sum, v) => sum + (v.courts > 0 ? v.courts : 0));
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.primaryLight, width: 1.5),
+      ),
+      child: Column(children: [
+        const Text('사용 코트 수',
+            style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: AppColors.text2)),
+        const SizedBox(height: 6),
+        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          const _CounterButton(
+              icon: Icons.remove, enabled: false, onTap: null),
+          const SizedBox(width: 14),
+          Container(
+            width: 56,
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: AppColors.primaryLight,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              '$total',
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: AppColors.primaryMid,
+              ),
+            ),
           ),
-      ]);
+          const SizedBox(width: 14),
+          const _CounterButton(
+              icon: Icons.add, enabled: false, onTap: null),
+        ]),
+        const SizedBox(height: 4),
+        const Text('코트',
+            style: TextStyle(fontSize: 12, color: AppColors.muted)),
+        const SizedBox(height: 6),
+        const Text('경기장별 코트 수 합계입니다.',
+            style: TextStyle(fontSize: 11, color: AppColors.muted)),
+      ]),
+    );
+  }
 }
 
-class _VenueCard extends StatelessWidget {
+/// 사용 경기장 수 카운터 (큰 카드)
+class _VenueCountCounterCard extends StatelessWidget {
   final _BracketScreenState s;
-  final VenueConfig v;
-  final int idx;
-  const _VenueCard(this.s, this.v, this.idx);
+  const _VenueCountCounterCard(this.s);
 
-  Color get _color {
-    final hex = v.colorHex.replaceAll('#', '');
-    try {
-      return Color(int.parse('FF$hex', radix: 16));
-    } catch (_) {
-      return AppColors.blue;
-    }
+  @override
+  Widget build(BuildContext context) {
+    final count = s._venues.length;
+    final canDec = count > 1;
+    final canInc = count < _BracketScreenState._maxVenueCount;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.primaryLight, width: 1.5),
+      ),
+      child: Column(children: [
+        const Text('사용 경기장 수',
+            style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: AppColors.text2)),
+        const SizedBox(height: 10),
+        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          _CounterButton(
+            icon: Icons.remove,
+            enabled: canDec,
+            onTap: canDec ? () => s._setVenueCount(count - 1) : null,
+            size: 44,
+            iconSize: 24,
+          ),
+          const SizedBox(width: 18),
+          Container(
+            width: 80,
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: AppColors.primaryLight,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(
+              '$count',
+              style: const TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.w800,
+                color: AppColors.primaryMid,
+              ),
+            ),
+          ),
+          const SizedBox(width: 18),
+          _CounterButton(
+            icon: Icons.add,
+            enabled: canInc,
+            onTap: canInc ? () => s._setVenueCount(count + 1) : null,
+            size: 44,
+            iconSize: 24,
+          ),
+        ]),
+        const SizedBox(height: 6),
+        const Text('개',
+            style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: AppColors.text2)),
+        const SizedBox(height: 8),
+        const Text('+ 누르면 경기장 추가, − 누르면 마지막 경기장 제거',
+            style: TextStyle(fontSize: 11, color: AppColors.muted)),
+      ]),
+    );
+  }
+}
+
+/// 공용 ⊖/⊕ 동그라미 버튼
+class _CounterButton extends StatelessWidget {
+  final IconData icon;
+  final bool enabled;
+  final VoidCallback? onTap;
+  final double size;
+  final double iconSize;
+  const _CounterButton({
+    required this.icon,
+    required this.enabled,
+    required this.onTap,
+    this.size = 32,
+    this.iconSize = 18,
+  });
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: enabled ? AppColors.primaryMid : AppColors.gray,
+          ),
+          child: Icon(
+            icon,
+            size: iconSize,
+            color: enabled ? Colors.white : AppColors.gray3,
+          ),
+        ),
+      );
+}
+
+/// 경기장별 입력 카드 (이름/위치/코트 수)
+class _VenueEditCard extends StatefulWidget {
+  final _BracketScreenState s;
+  final int index;
+  const _VenueEditCard({required this.s, required this.index});
+
+  @override
+  State<_VenueEditCard> createState() => _VenueEditCardState();
+}
+
+class _VenueEditCardState extends State<_VenueEditCard> {
+  late TextEditingController _nameCtrl;
+  late TextEditingController _addrCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    final v = widget.s._venues[widget.index];
+    _nameCtrl = TextEditingController(text: v.name);
+    _addrCtrl = TextEditingController(text: v.address);
   }
 
   @override
-  Widget build(BuildContext context) => Container(
-        margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-        decoration: BoxDecoration(
-            color: AppColors.white,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppColors.gray2, width: .5)),
-        child: Column(children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-            decoration: const BoxDecoration(
-                border: Border(bottom: BorderSide(color: AppColors.divider))),
-            child: Row(children: [
-              Container(
-                  width: 13,
-                  height: 13,
-                  decoration: BoxDecoration(
-                      color: _color, borderRadius: BorderRadius.circular(3))),
-              const SizedBox(width: 8),
-              Expanded(
-                  child: TextFormField(
-                initialValue: v.name,
-                style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.text),
-                decoration: const InputDecoration(
-                    border: InputBorder.none,
-                    isDense: true,
-                    contentPadding: EdgeInsets.zero),
-                onChanged: (val) => s.rebuild(() => v.name = val),
-              )),
-              if (s._venues.length > 1)
-                GestureDetector(
-                  onTap: () => s.rebuild(() {
-                    s._venues.removeWhere((x) => x.id == v.id);
-                    for (final key in s._assignMap.keys.toList()) {
-                      if (s._assignMap[key] == v.id) {
-                        s._assignMap[key] = s._venues.first.id;
-                      }
-                    }
-                  }),
-                  child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 9, vertical: 4),
-                      decoration: BoxDecoration(
-                          border: Border.all(color: AppColors.red3),
-                          borderRadius: BorderRadius.circular(7)),
-                      child: const Text('삭제',
-                          style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.red))),
-                )
-              else
-                const Text('기본',
-                    style: TextStyle(fontSize: 10, color: AppColors.gray3)),
-            ]),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Row(children: [
-              const Text('코트 수',
-                  style: TextStyle(fontSize: 12, color: AppColors.muted)),
-              const SizedBox(width: 10),
-              Expanded(child: _CourtGrid(v, s)),
-            ]),
-          ),
-        ]),
-      );
-}
-
-class _CourtGrid extends StatelessWidget {
-  final VenueConfig v;
-  final _BracketScreenState s;
-  const _CourtGrid(this.v, this.s);
+  void didUpdateWidget(covariant _VenueEditCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final v = widget.s._venues[widget.index];
+    if (_nameCtrl.text != v.name) _nameCtrl.text = v.name;
+    if (_addrCtrl.text != v.address) _addrCtrl.text = v.address;
+  }
 
   @override
-  Widget build(BuildContext context) => GridView.builder(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 6,
-            childAspectRatio: 1.1,
-            mainAxisSpacing: 4,
-            crossAxisSpacing: 4),
-        itemCount: 18,
-        itemBuilder: (_, i) {
-          final n = i + 1;
-          final on = v.courts == n;
-          return GestureDetector(
-            onTap: () => s.rebuild(() => v.courts = n),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 100),
+  void dispose() {
+    _nameCtrl.dispose();
+    _addrCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final v = widget.s._venues[widget.index];
+    final disabled = v.courts == 0;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: disabled ? AppColors.gray : AppColors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.divider, width: 1),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Text('경기장 ${widget.index + 1}',
+              style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.muted)),
+          if (disabled) ...[
+            const SizedBox(width: 8),
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
               decoration: BoxDecoration(
-                  color: on ? AppColors.blue2 : AppColors.gray,
-                  borderRadius: BorderRadius.circular(7),
-                  border: Border.all(
-                      color: on ? AppColors.blue2 : Colors.transparent,
-                      width: 1.5)),
-              child: Center(
-                  child: Text('$n',
-                      style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                          color: on ? Colors.white : AppColors.text2))),
+                color: AppColors.red3.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: const Text('사용 안 함',
+                  style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.red)),
             ),
-          );
-        },
-      );
+          ],
+        ]),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _nameCtrl,
+          decoration: const InputDecoration(
+            labelText: '대회장소',
+            hintText: '예: 과천시민체육관',
+            isDense: true,
+          ),
+          onChanged: (val) => widget.s._updateVenueName(widget.index, val),
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _addrCtrl,
+          decoration: const InputDecoration(
+            labelText: '위치',
+            hintText: '예: 경기도 과천시 중앙로 123',
+            prefixIcon:
+                Icon(Icons.location_on_outlined, size: 18, color: AppColors.gray3),
+            isDense: true,
+          ),
+          maxLines: 1,
+          onChanged: (val) =>
+              widget.s._updateVenueAddress(widget.index, val),
+        ),
+        const SizedBox(height: 10),
+        Row(children: [
+          const Text('코트 수',
+              style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.text2)),
+          const Spacer(),
+          _CounterButton(
+            icon: Icons.remove,
+            enabled: v.courts > 0,
+            onTap: v.courts > 0
+                ? () => widget.s._updateVenueCourts(widget.index, v.courts - 1)
+                : null,
+          ),
+          const SizedBox(width: 12),
+          SizedBox(
+            width: 32,
+            child: Text(
+              '${v.courts}',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+                color: AppColors.text,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          _CounterButton(
+            icon: Icons.add,
+            enabled: v.courts < _BracketScreenState._maxCourtsPerVenue,
+            onTap: v.courts < _BracketScreenState._maxCourtsPerVenue
+                ? () => widget.s._updateVenueCourts(widget.index, v.courts + 1)
+                : null,
+          ),
+        ]),
+      ]),
+    );
+  }
 }
 
 class _AssignTable extends StatelessWidget {

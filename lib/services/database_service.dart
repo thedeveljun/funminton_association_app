@@ -11,7 +11,7 @@ class DatabaseService {
     final dbPath = await getDatabasesPath();
     _db = await openDatabase(
       join(dbPath, 'badminton_association.db'),
-      version: 2,
+      version: 4,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -21,6 +21,59 @@ class DatabaseService {
     if (oldVersion < 2) {
       await db.execute(
           'ALTER TABLE tournaments ADD COLUMN venue_courts TEXT DEFAULT \'\'');
+    }
+    if (oldVersion < 3) {
+      await db.execute(
+          'ALTER TABLE tournaments ADD COLUMN venue_addresses TEXT DEFAULT \'\'');
+    }
+    if (oldVersion < 4) {
+      await _migrateV4(db);
+    }
+  }
+
+  /// v4 마이그레이션: eventType/targetGrade 다중값화 + 라벨 통일.
+  /// 실패해도 앱 진입을 막지 않음 — fromMap 의 런타임 정규화가 안전망.
+  Future<void> _migrateV4(Database db) async {
+    try {
+      // ① eventType '전체' → 풀어쓰기
+      await db.execute(
+        "UPDATE tournaments SET event_type = '혼복,남복,여복' "
+        "WHERE TRIM(event_type) = '전체'",
+      );
+      // ② eventType 빈 값/NULL → '혼복'
+      await db.execute(
+        "UPDATE tournaments SET event_type = '혼복' "
+        "WHERE event_type IS NULL OR TRIM(event_type) = ''",
+      );
+      // ③ targetGrade '전체' → 풀어쓰기
+      await db.execute(
+        "UPDATE tournaments SET target_grade = 'A조,B조,C조,D조,초심조' "
+        "WHERE TRIM(target_grade) = '전체'",
+      );
+      // ④ A급/B급/C급/D급 → A조/B조/C조/D조
+      for (final letter in ['A', 'B', 'C', 'D']) {
+        await db.execute(
+          "UPDATE tournaments "
+          "SET target_grade = REPLACE(target_grade, '$letter급', '$letter조') "
+          "WHERE target_grade LIKE '%$letter급%'",
+        );
+      }
+      // 초심 → 초심조 (재실행 안전 가드)
+      await db.execute(
+        "UPDATE tournaments "
+        "SET target_grade = REPLACE(target_grade, '초심', '초심조') "
+        "WHERE target_grade LIKE '%초심%' "
+        "AND target_grade NOT LIKE '%초심조%'",
+      );
+      // ⑤ targetGrade 빈 값/NULL → 전체 풀어쓰기
+      await db.execute(
+        "UPDATE tournaments SET target_grade = 'A조,B조,C조,D조,초심조' "
+        "WHERE target_grade IS NULL OR TRIM(target_grade) = ''",
+      );
+    } catch (e) {
+      // 마이그레이션 실패는 fromMap 정규화로 폴백되므로 로깅만.
+      // ignore: avoid_print
+      print('[DB] _migrateV4 failed (non-fatal): $e');
     }
   }
 
@@ -69,6 +122,7 @@ class DatabaseService {
         end_date TEXT,
         venue TEXT,
         venue_courts TEXT DEFAULT '',
+        venue_addresses TEXT DEFAULT '',
         event_type TEXT,
         target_grade TEXT,
         entry_fee INTEGER DEFAULT 0,

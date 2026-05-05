@@ -1,3 +1,5 @@
+import 'venue.dart';
+
 /// 대회 분류
 /// - associationCup: 협회장기대회 (분담금 + 찬조 적용)
 /// - cityCup: 시장기대회 (시 지원 + 찬조)
@@ -30,9 +32,13 @@ class Tournament {
   final TournamentType tournamentType;
   final String startDate;
   final String endDate;
-  final String venue;
-  final String eventType; // '혼복' | '남복' | '여복' | '전체'
-  final String targetGrade; // '전체' | 'A급' | 'B급' …
+  /// 콤마 구분 다중 종별. 예: '혼복' 또는 '혼복,남복,여복'.
+  /// legacy '전체' 는 fromMap 단계에서 '혼복,남복,여복' 으로 자동 변환.
+  final String eventType;
+  /// 콤마 구분 다중 급수. 예: 'A조' 또는 'A조,B조,C조'.
+  /// legacy 'A급'/'B급'/.../'초심' 은 fromMap 에서 '조' 표기로 자동 변환.
+  /// legacy '전체' 는 모든 개별 급수 풀어서 저장.
+  final String targetGrade;
   final int entryFee;
   final String status; // 'upcoming' | 'ongoing' | 'completed'
   final int participantCount;
@@ -76,23 +82,22 @@ class Tournament {
     '초심조',
   ];
 
-  /// 경기장별 코트 수 — venue 필드와 같은 순서, 콤마 구분
-  /// 예) venue="과천시민체육관, 과천종합운동장", venueCourts="6,4"
-  /// 0 = 사용 안 함 (체크 해제 상태)
-  /// 빈 문자열 또는 길이 불일치 시 venueList 길이만큼 기본 4코트 자동 채움
-  final String venueCourts;
+  // ── 경기장 (Venue 모델로 통합) ──────────────
+  /// 대회 경기장 목록. 각 Venue 는 name/address/courts/id/colorHex 보유.
+  /// 영속화 시 toMap 에서 'venues' (신규) 와 'venue'/'venue_addresses'/'venue_courts'
+  /// (레거시 콤마 문자열) 를 모두 출력하여 backward compatibility 유지.
+  final List<Venue> venues;
 
-  /// 각 경기장의 기본 코트 수 (venueCourts가 비었거나 짧을 때 사용)
+  /// 각 경기장의 기본 코트 수 (legacy 문자열 파싱 시 사용)
   static const int defaultCourtsPerVenue = 4;
 
-  const Tournament({
+  Tournament({
     required this.id,
     required this.name,
     this.region = '',
     this.tournamentType = TournamentType.general,
     this.startDate = '',
     this.endDate = '',
-    this.venue = '',
     this.eventType = '혼복',
     this.targetGrade = '전체',
     this.entryFee = 0,
@@ -107,45 +112,102 @@ class Tournament {
     this.acceptsDonation = false,
     this.ageGroups = defaultAgeGroups,
     this.gradeGroups = defaultGradeGroups,
-    this.venueCourts = '',
-  });
+    String venue = '',
+    String venueAddresses = '',
+    String venueCourts = '',
+    List<Venue>? venues,
+  }) : venues = venues ?? _parseLegacy(venue, venueAddresses, venueCourts);
 
-  // ── 파생 게터 ────────────────────────────
-
-  /// 콤마 구분된 venue 문자열을 trim된 리스트로 파싱
-  List<String> get venueList => venue
-      .split(',')
-      .map((s) => s.trim())
-      .where((s) => s.isNotEmpty)
-      .toList();
-
-  /// 각 경기장의 코트 수 리스트. venueList 길이에 맞춰 정규화.
-  /// venueCourts가 비거나 짧으면 부족한 만큼 defaultCourtsPerVenue로 채움.
-  List<int> get venueCourtsList {
-    final venues = venueList;
-    if (venues.isEmpty) return const [];
-    final raw = venueCourts
+  /// legacy 콤마 문자열 → List<Venue>
+  static List<Venue> _parseLegacy(
+      String venue, String addresses, String courts) {
+    final names = venue
+        .split(',')
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+    if (names.isEmpty) return <Venue>[];
+    final addrList = addresses.split(',').map((s) => s.trim()).toList();
+    final courtList = courts
         .split(',')
         .map((s) => int.tryParse(s.trim()) ?? defaultCourtsPerVenue)
         .toList();
     return List.generate(
-      venues.length,
-      (i) => i < raw.length ? raw[i] : defaultCourtsPerVenue,
+      names.length,
+      (i) => Venue(
+        id: 'v${i + 1}',
+        name: names[i],
+        address: i < addrList.length ? addrList[i] : '',
+        courts: i < courtList.length ? courtList[i] : defaultCourtsPerVenue,
+        colorHex: Venue.defaultColors[i % Venue.defaultColors.length],
+      ),
     );
   }
 
+  // ── 종별/급수 다중값 헬퍼 ─────────────────
+  static const List<String> allEventTypes = ['혼복', '남복', '여복'];
+
+  /// 대상급수 마스터 라벨(가나다 정렬 무시, 표시 순서)
+  static const List<String> allTargetGrades = [
+    'A조',
+    'B조',
+    'C조',
+    'D조',
+    '초심조',
+  ];
+
+  /// 콤마 구분 eventType → List<String>. 빈 값이면 ['혼복'] fallback.
+  List<String> get eventTypeList {
+    final raw = eventType.trim();
+    if (raw.isEmpty) return ['혼복'];
+    if (raw == '전체') return List.of(allEventTypes);
+    final parts = raw
+        .split(',')
+        .map((s) => s.trim())
+        .where((s) => allEventTypes.contains(s))
+        .toList();
+    return parts.isEmpty ? ['혼복'] : parts;
+  }
+
+  /// 콤마 구분 targetGrade → List<String>. 'A조,B조,...' 형식만 반환.
+  /// legacy '전체' 는 모든 개별 급수로 풀어서 반환.
+  /// 빈 값이면 모든 급수 (= '전체') 로 fallback.
+  List<String> get targetGradeList {
+    final raw = targetGrade.trim();
+    if (raw.isEmpty || raw == '전체') return List.of(allTargetGrades);
+    final parts = raw
+        .split(',')
+        .map((s) => _normalizeGradeLabel(s.trim()))
+        .where((s) => allTargetGrades.contains(s))
+        .toList();
+    return parts.isEmpty ? List.of(allTargetGrades) : parts;
+  }
+
+  // ── 레거시 호환 게터 ──────────────────────
+  /// 콤마 + 공백 구분 venue 이름 문자열 (legacy)
+  String get venue => venues.map((v) => v.name).join(', ');
+
+  /// 콤마 + 공백 구분 venue 주소 문자열 (legacy)
+  String get venueAddresses => venues.map((v) => v.address).join(', ');
+
+  /// 콤마 구분 venue 코트 수 문자열 (legacy)
+  String get venueCourts => venues.map((v) => v.courts.toString()).join(',');
+
+  // ── 파생 게터 ────────────────────────────
+  List<String> get venueList => venues.map((v) => v.name).toList();
+  List<String> get venueAddressList => venues.map((v) => v.address).toList();
+  List<int> get venueCourtsList => venues.map((v) => v.courts).toList();
+
   /// 0이 아닌(=활성) 코트 수의 합
   int get totalActiveCourts =>
-      venueCourtsList.fold(0, (s, c) => s + (c > 0 ? c : 0));
+      venues.fold(0, (s, v) => s + (v.courts > 0 ? v.courts : 0));
 
   /// 0이 아닌(=활성) 경기장 개수
-  int get activeVenueCount => venueCourtsList.where((c) => c > 0).length;
+  int get activeVenueCount => venues.where((v) => v.courts > 0).length;
 
   /// index 번 경기장 활성화 여부 (코트 수 > 0)
-  bool isVenueActive(int index) {
-    final list = venueCourtsList;
-    return index >= 0 && index < list.length && list[index] > 0;
-  }
+  bool isVenueActive(int index) =>
+      index >= 0 && index < venues.length && venues[index].courts > 0;
 
   /// 협회 자체 부담액 (총 예산 − 시 지원금)
   int get associationBurden => totalBudget - citySupportAmount;
@@ -183,6 +245,8 @@ class Tournament {
   String get formattedAssociationBurden => _fmt(associationBurden);
 
   // ── 부분 업데이트 ────────────────────────
+  /// venues 가 주어지면 그것을 사용. 아니면 legacy 문자열 (venue/venueAddresses/venueCourts)
+  /// 로 재구성. 두 경로 모두 미지정이면 현재 venues 유지.
   Tournament copyWith({
     String? name,
     String? region,
@@ -190,6 +254,8 @@ class Tournament {
     String? startDate,
     String? endDate,
     String? venue,
+    String? venueAddresses,
+    String? venueCourts,
     String? eventType,
     String? targetGrade,
     int? entryFee,
@@ -204,7 +270,7 @@ class Tournament {
     bool? acceptsDonation,
     List<String>? ageGroups,
     List<String>? gradeGroups,
-    String? venueCourts,
+    List<Venue>? venues,
   }) =>
       Tournament(
         id: id,
@@ -213,7 +279,6 @@ class Tournament {
         tournamentType: tournamentType ?? this.tournamentType,
         startDate: startDate ?? this.startDate,
         endDate: endDate ?? this.endDate,
-        venue: venue ?? this.venue,
         eventType: eventType ?? this.eventType,
         targetGrade: targetGrade ?? this.targetGrade,
         entryFee: entryFee ?? this.entryFee,
@@ -228,7 +293,11 @@ class Tournament {
         acceptsDonation: acceptsDonation ?? this.acceptsDonation,
         ageGroups: ageGroups ?? this.ageGroups,
         gradeGroups: gradeGroups ?? this.gradeGroups,
+        // venues 가 명시적으로 주어졌으면 우선 적용. legacy 문자열 인자도 병행 가능.
+        venue: venue ?? this.venue,
+        venueAddresses: venueAddresses ?? this.venueAddresses,
         venueCourts: venueCourts ?? this.venueCourts,
+        venues: venues ?? this.venues,
       );
 
   // ── DB 변환 ──────────────────────────────
@@ -239,7 +308,12 @@ class Tournament {
         'tournament_type': tournamentType.name,
         'start_date': startDate,
         'end_date': endDate,
+        // legacy 문자열 (호환성 유지)
         'venue': venue,
+        'venue_courts': venueCourts,
+        'venue_addresses': venueAddresses,
+        // 신규 venues 리스트
+        'venues': venues.map((v) => v.toMap()).toList(),
         'event_type': eventType,
         'target_grade': targetGrade,
         'entry_fee': entryFee,
@@ -254,54 +328,110 @@ class Tournament {
         'accepts_donation': acceptsDonation ? 1 : 0,
         'age_groups': ageGroups.join(','),
         'grade_groups': gradeGroups.join(','),
-        'venue_courts': venueCourts,
       };
 
-  factory Tournament.fromMap(Map<String, dynamic> m) => Tournament(
-        id: m['id'] ?? '',
-        name: m['name'] ?? '',
-        region: m['region'] ?? '',
-        tournamentType: TournamentType.values.firstWhere(
-          (t) => t.name == m['tournament_type'],
-          orElse: () => TournamentType.general,
-        ),
-        startDate: m['start_date'] ?? '',
-        endDate: m['end_date'] ?? '',
-        venue: m['venue'] ?? '',
-        eventType: m['event_type'] ?? '혼복',
-        targetGrade: m['target_grade'] ?? '전체',
-        entryFee: m['entry_fee'] ?? 0,
-        status: m['status'] ?? 'upcoming',
-        participantCount: m['participant_count'] ?? 0,
-        description: m['description'] ?? '',
-        progressPercent: m['progress_percent'] ?? 0,
-        totalBudget: m['total_budget'] ?? 0,
-        citySupportAmount: m['city_support_amount'] ?? 0,
-        citySupportNote: m['city_support_note'] ?? '',
-        hasClubShare: (m['has_club_share'] ?? 0) == 1,
-        acceptsDonation: (m['accepts_donation'] ?? 0) == 1,
-        ageGroups: () {
-          final raw = m['age_groups'];
-          if (raw is String && raw.isNotEmpty) {
-            return raw
-                .split(',')
-                .map((s) => s.trim().replaceAll('대', ''))
-                .where((s) => s.isNotEmpty)
-                .toList();
-          }
-          return defaultAgeGroups;
-        }(),
-        gradeGroups: () {
-          final raw = m['grade_groups'];
-          if (raw is String && raw.isNotEmpty) {
-            return raw
-                .split(',')
-                .map((s) => s.trim())
-                .where((s) => s.isNotEmpty)
-                .toList();
-          }
-          return defaultGradeGroups;
-        }(),
-        venueCourts: m['venue_courts'] ?? '',
-      );
+  /// fromMap 단계에서 target_grade 컬럼을 읽을 때 라벨/'전체' 정규화.
+  /// 3단계: 'A급'→'A조' 변환. 4단계 준비: '전체'/빈 값/콤마 구분 모두 보존.
+  /// (4단계에서 '전체' → 풀어쓰기 마이그레이션은 별도 처리)
+  static String _normalizeTargetGradeRead(dynamic raw) {
+    final s = (raw ?? '').toString().trim();
+    if (s.isEmpty) return '전체';
+    if (s == '전체') return '전체';
+    final parts = s
+        .split(',')
+        .map((e) => _normalizeGradeLabel(e.trim()))
+        .where((e) => e.isNotEmpty)
+        .toList();
+    if (parts.isEmpty) return '전체';
+    return parts.join(',');
+  }
+
+  /// 'A급'/'B급'/'C급'/'D급' → 'A조'/'B조'/'C조'/'D조',
+  /// '초심' → '초심조' 로 라벨 표기 통일.
+  static String _normalizeGradeLabel(String s) {
+    final t = s.trim();
+    if (t.isEmpty) return t;
+    // A급/B급/C급/D급 → A조/B조/C조/D조
+    final m = RegExp(r'^([A-Z])급$').firstMatch(t);
+    if (m != null) return '${m.group(1)}조';
+    if (t == '초심') return '초심조';
+    return t;
+  }
+
+  /// legacy '전체' → '혼복,남복,여복' 변환.
+  /// 알 수 없는 값은 '혼복' fallback. 콤마 구분 다중값은 유효한 것만 추려서 반환.
+  static String _normalizeEventType(dynamic raw) {
+    final s = (raw ?? '').toString().trim();
+    if (s.isEmpty) return '혼복';
+    if (s == '전체') return allEventTypes.join(',');
+    final parts = s
+        .split(',')
+        .map((e) => e.trim())
+        .where((e) => allEventTypes.contains(e))
+        .toList();
+    if (parts.isEmpty) return '혼복';
+    return parts.join(',');
+  }
+
+  factory Tournament.fromMap(Map<String, dynamic> m) {
+    // 'venues' 신규 키 우선, 없으면 legacy 문자열에서 파싱
+    List<Venue>? parsedVenues;
+    final raw = m['venues'];
+    if (raw is List && raw.isNotEmpty) {
+      parsedVenues = raw
+          .whereType<Map>()
+          .map((e) => Venue.fromMap(Map<String, dynamic>.from(e)))
+          .toList();
+    }
+    return Tournament(
+      id: m['id'] ?? '',
+      name: m['name'] ?? '',
+      region: m['region'] ?? '',
+      tournamentType: TournamentType.values.firstWhere(
+        (t) => t.name == m['tournament_type'],
+        orElse: () => TournamentType.general,
+      ),
+      startDate: m['start_date'] ?? '',
+      endDate: m['end_date'] ?? '',
+      eventType: _normalizeEventType(m['event_type']),
+      targetGrade: _normalizeTargetGradeRead(m['target_grade']),
+      entryFee: m['entry_fee'] ?? 0,
+      status: m['status'] ?? 'upcoming',
+      participantCount: m['participant_count'] ?? 0,
+      description: m['description'] ?? '',
+      progressPercent: m['progress_percent'] ?? 0,
+      totalBudget: m['total_budget'] ?? 0,
+      citySupportAmount: m['city_support_amount'] ?? 0,
+      citySupportNote: m['city_support_note'] ?? '',
+      hasClubShare: (m['has_club_share'] ?? 0) == 1,
+      acceptsDonation: (m['accepts_donation'] ?? 0) == 1,
+      ageGroups: () {
+        final raw = m['age_groups'];
+        if (raw is String && raw.isNotEmpty) {
+          return raw
+              .split(',')
+              .map((s) => s.trim().replaceAll('대', ''))
+              .where((s) => s.isNotEmpty)
+              .toList();
+        }
+        return defaultAgeGroups;
+      }(),
+      gradeGroups: () {
+        final raw = m['grade_groups'];
+        if (raw is String && raw.isNotEmpty) {
+          return raw
+              .split(',')
+              .map((s) => s.trim())
+              .where((s) => s.isNotEmpty)
+              .toList();
+        }
+        return defaultGradeGroups;
+      }(),
+      // legacy 문자열 (parsedVenues 미존재 시 fallback)
+      venue: m['venue'] ?? '',
+      venueAddresses: m['venue_addresses'] ?? '',
+      venueCourts: m['venue_courts'] ?? '',
+      venues: parsedVenues,
+    );
+  }
 }

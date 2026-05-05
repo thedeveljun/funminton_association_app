@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../models/tournament.dart';
+import '../../services/sample_data.dart';
 import 'bracket_screen.dart';
 import 'tournament_form_screen.dart';
 
@@ -33,62 +34,8 @@ class _TournamentListScreenState extends State<TournamentListScreen>
     super.dispose();
   }
 
-  // ────────────────────────────────────────────────────────────
-  // 더미 데이터 — 실제 운영 시 Service/Repository로 교체
-  // ────────────────────────────────────────────────────────────
-  List<Tournament> get _dummy => const [
-        Tournament(
-          id: 't1',
-          name: '2026 과천시배드민턴협회장기대회',
-          region: '과천시',
-          tournamentType: TournamentType.associationCup,
-          startDate: '2026-05-15',
-          endDate: '2026-05-16',
-          venue: '과천시민체육관',
-          entryFee: 0,
-          participantCount: 0,
-          status: 'upcoming',
-        ),
-        Tournament(
-          id: 't2',
-          name: '2026 과천시장기대회',
-          region: '과천시',
-          tournamentType: TournamentType.cityCup,
-          startDate: '2026-07-10',
-          endDate: '2026-07-11',
-          venue: '과천시민체육관, 과천종합운동장',
-          entryFee: 0,
-          participantCount: 0,
-          status: 'upcoming',
-        ),
-        Tournament(
-          id: 't3',
-          name: '2026 과천시/경인일보대회',
-          region: '과천시',
-          tournamentType: TournamentType.mediaCup,
-          startDate: '2026-09-20',
-          endDate: '2026-09-21',
-          venue: '과천시민체육관, 과천종합운동장, 관문체육공원',
-          entryFee: 0,
-          participantCount: 0,
-          status: 'upcoming',
-        ),
-        Tournament(
-          id: 't4',
-          name: '2026 라온누리대회',
-          region: '과천시',
-          tournamentType: TournamentType.general,
-          startDate: '2026-11-05',
-          endDate: '2026-11-05',
-          venue: '과천시민체육관',
-          entryFee: 30000,
-          participantCount: 24,
-          status: 'upcoming',
-        ),
-      ];
-
   List<Tournament> _filterBy(String status) =>
-      _dummy.where((t) => t.status == status).toList();
+      SampleData.tournaments.where((t) => t.status == status).toList();
 
   // ────────────────────────────────────────────────────────────
   @override
@@ -196,6 +143,9 @@ class _TournamentListScreenState extends State<TournamentListScreen>
         tournament: items[i],
         onBracket: () => _onBracket(items[i]),
         onApply: () => _onApply(items[i]),
+        onEdit: () => _onEditTournament(items[i]),
+        onDuplicate: () => _onDuplicateTournament(items[i]),
+        onDelete: () => _onDeleteTournament(items[i]),
       ),
     );
   }
@@ -217,6 +167,119 @@ class _TournamentListScreenState extends State<TournamentListScreen>
   }
 
   void _onApply(Tournament t) {}
+
+  // 카드 ⋮ 메뉴 액션 — 수정
+  Future<void> _onEditTournament(Tournament t) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => TournamentFormScreen(initial: t)),
+    );
+    if (mounted) setState(() {});
+  }
+
+  // 카드 ⋮ 메뉴 액션 — 복제
+  Future<void> _onDuplicateTournament(Tournament t) async {
+    final cloned = t.copyWith(
+      name: '${t.name} (복사본)',
+      status: 'upcoming',
+      participantCount: 0,
+      progressPercent: 0,
+    );
+    // copyWith 는 id 변경을 지원하지 않으므로 새 id 로 재구성
+    final duplicate = Tournament(
+      id: 't_${DateTime.now().millisecondsSinceEpoch}',
+      name: cloned.name,
+      region: cloned.region,
+      tournamentType: cloned.tournamentType,
+      startDate: cloned.startDate,
+      endDate: cloned.endDate,
+      eventType: cloned.eventType,
+      targetGrade: cloned.targetGrade,
+      entryFee: cloned.entryFee,
+      status: 'upcoming',
+      participantCount: 0,
+      description: cloned.description,
+      progressPercent: 0,
+      totalBudget: cloned.totalBudget,
+      citySupportAmount: cloned.citySupportAmount,
+      citySupportNote: cloned.citySupportNote,
+      hasClubShare: cloned.hasClubShare,
+      acceptsDonation: cloned.acceptsDonation,
+      ageGroups: List<String>.from(cloned.ageGroups),
+      gradeGroups: List<String>.from(cloned.gradeGroups),
+      venues: List.from(cloned.venues),
+    );
+    SampleData.tournaments.add(duplicate);
+    await SampleData.saveTournaments();
+    if (!mounted) return;
+    setState(() {});
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('대회가 복제되었습니다. 이름과 날짜를 수정해주세요.')),
+    );
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => TournamentFormScreen(initial: duplicate),
+      ),
+    );
+    if (mounted) setState(() {});
+  }
+
+  // 카드 ⋮ 메뉴 액션 — 삭제
+  Future<void> _onDeleteTournament(Tournament t) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('${t.name} 삭제',
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+        content: const Text(
+          '이 대회를 삭제하시겠습니까?\n\n'
+          '참가자 정보, 대진표, 성적이 모두 함께 삭제됩니다.\n'
+          '이 작업은 되돌릴 수 없습니다.',
+          style: TextStyle(fontSize: 14),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('취소', style: TextStyle(color: AppColors.muted)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('삭제',
+                style: TextStyle(
+                    color: AppColors.red2, fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    // 연관 데이터 수동 정리 (ON DELETE CASCADE 미사용 — finance_screen 패턴)
+    final shareTxIds = SampleData.clubShares
+        .where((s) => s.tournamentId == t.id && s.txId != null)
+        .map((s) => s.txId!)
+        .toSet();
+    final donationTxIds = SampleData.donations
+        .where((d) => d.tournamentId == t.id && d.txId != null)
+        .map((d) => d.txId!)
+        .toSet();
+
+    SampleData.tournaments.removeWhere((x) => x.id == t.id);
+    SampleData.clubShares.removeWhere((s) => s.tournamentId == t.id);
+    SampleData.donations.removeWhere((d) => d.tournamentId == t.id);
+    SampleData.transactions.removeWhere((tx) =>
+        tx.tournamentId == t.id ||
+        shareTxIds.contains(tx.id) ||
+        donationTxIds.contains(tx.id));
+
+    await SampleData.saveTournaments();
+    if (!mounted) return;
+    setState(() {});
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('${t.name} 이(가) 삭제되었습니다.')),
+    );
+  }
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -242,11 +305,17 @@ class _TournamentCard extends StatelessWidget {
   final Tournament tournament;
   final VoidCallback onBracket;
   final VoidCallback onApply;
+  final VoidCallback onEdit;
+  final VoidCallback onDuplicate;
+  final VoidCallback onDelete;
 
   const _TournamentCard({
     required this.tournament,
     required this.onBracket,
     required this.onApply,
+    required this.onEdit,
+    required this.onDuplicate,
+    required this.onDelete,
   });
 
   List<String> get _venues => tournament.venue
@@ -261,6 +330,75 @@ class _TournamentCard extends StatelessWidget {
           (m) => '${m[1]},',
         );
     return '참가비 ${s}원';
+  }
+
+  Widget _buildMoreMenu(BuildContext context) {
+    return PopupMenuButton<String>(
+      tooltip: '메뉴',
+      icon: const Icon(Icons.more_vert, size: 20, color: AppColors.muted),
+      padding: EdgeInsets.zero,
+      splashRadius: 18,
+      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+      elevation: 4,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+      ),
+      onSelected: (v) {
+        switch (v) {
+          case 'edit':
+            onEdit();
+            break;
+          case 'duplicate':
+            onDuplicate();
+            break;
+          case 'delete':
+            onDelete();
+            break;
+        }
+      },
+      itemBuilder: (_) => const [
+        PopupMenuItem<String>(
+          value: 'edit',
+          padding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: Row(children: [
+            Icon(Icons.edit_outlined, size: 18, color: AppColors.text2),
+            SizedBox(width: 10),
+            Text('수정',
+                style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.text)),
+          ]),
+        ),
+        PopupMenuItem<String>(
+          value: 'duplicate',
+          padding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: Row(children: [
+            Icon(Icons.copy_outlined, size: 18, color: AppColors.text2),
+            SizedBox(width: 10),
+            Text('복제',
+                style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.text)),
+          ]),
+        ),
+        PopupMenuDivider(height: 6),
+        PopupMenuItem<String>(
+          value: 'delete',
+          padding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: Row(children: [
+            Icon(Icons.delete_outline, size: 18, color: AppColors.red2),
+            SizedBox(width: 10),
+            Text('삭제',
+                style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.red2)),
+          ]),
+        ),
+      ],
+    );
   }
 
   @override
@@ -282,15 +420,26 @@ class _TournamentCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 제목
-          Text(
-            t.name,
-            style: const TextStyle(
-              fontSize: 14.5,
-              fontWeight: FontWeight.w700,
-              color: AppColors.text,
-              height: 1.1,
-            ),
+          // 제목 + ⋮ 메뉴
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  t.name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.text,
+                    height: 1.1,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              _buildMoreMenu(context),
+            ],
           ),
           const SizedBox(height: 2),
 
@@ -311,8 +460,10 @@ class _TournamentCard extends StatelessWidget {
             spacing: 6,
             runSpacing: 3,
             children: [
-              if (t.targetGrade.isNotEmpty && t.targetGrade != '전체')
-                _GradeTag(grade: t.targetGrade),
+              if (t.targetGrade.isNotEmpty &&
+                  t.targetGrade != '전체' &&
+                  t.targetGradeList.length < Tournament.allTargetGrades.length)
+                _GradeTag(grade: t.targetGradeList.join(', ')),
               _VenueTag(venues: _venues),
               _Tag('참가 ${t.participantCount}명'),
               _Tag(_formatFee(t.entryFee)),
@@ -330,13 +481,17 @@ class _TournamentCard extends StatelessWidget {
                     backgroundColor: AppColors.primaryMid,
                     foregroundColor: AppColors.white,
                     elevation: 0,
-                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    padding: const EdgeInsets.symmetric(vertical: 17),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    visualDensity: VisualDensity.compact,
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(9),
+                      borderRadius: BorderRadius.circular(12),
                     ),
                     textStyle: const TextStyle(
                       fontSize: 13.5,
                       fontWeight: FontWeight.w700,
+                      height: 1.0,
                     ),
                   ),
                   child: const Text('대진표'),
@@ -353,13 +508,17 @@ class _TournamentCard extends StatelessWidget {
                       color: AppColors.primaryMid,
                       width: 1.4,
                     ),
-                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    padding: const EdgeInsets.symmetric(vertical: 17),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    visualDensity: VisualDensity.compact,
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(9),
+                      borderRadius: BorderRadius.circular(12),
                     ),
                     textStyle: const TextStyle(
                       fontSize: 13.5,
                       fontWeight: FontWeight.w700,
+                      height: 1.0,
                     ),
                   ),
                   child: const Text('참가 신청'),

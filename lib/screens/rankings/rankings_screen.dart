@@ -48,9 +48,9 @@ class _State extends State<RankingsScreen> {
       ),
       body: Column(children: [
         FilterChipRow(
-            options: const ['전체', 'A급', 'B급', 'C급', 'D급', '초심'],
+            options: const ['전체', 'A조', 'B조', 'C조', 'D조', '초심조'],
             selected: _grade,
-            onSelect: (v) => setState(() => _grade = v.replaceAll('급', ''))),
+            onSelect: (v) => setState(() => _grade = v.replaceAll('조', ''))),
         FilterChipRow(
             options: const ['전체', '남', '여'],
             selected: _gender,

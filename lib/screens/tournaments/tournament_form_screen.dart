@@ -2,28 +2,43 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/theme/app_colors.dart';
 import '../../models/tournament.dart';
+import '../../models/venue.dart';
 import '../../services/sample_data.dart';
 import '../../widgets/common/form_action_bar.dart';
 
 class TournamentFormScreen extends StatefulWidget {
-  const TournamentFormScreen({super.key});
+  /// null 이면 신규 등록, 값이 있으면 수정 모드
+  final Tournament? initial;
+
+  const TournamentFormScreen({super.key, this.initial});
 
   @override
   State<TournamentFormScreen> createState() => _TournamentFormScreenState();
 }
 
 class _TournamentFormScreenState extends State<TournamentFormScreen> {
+  bool get _isEdit => widget.initial != null;
+
   // ── 기본 정보 ──────────────────────────
   final _nameCtrl = TextEditingController();
   final _regionCtrl = TextEditingController();
-  final _venueCtrl = TextEditingController();
   TournamentType _tournamentType = TournamentType.general;
   String _startDate = '';
   String _endDate = '';
 
+  // ── 경기장 (다중) ──────────────────────────
+  final List<TextEditingController> _venueNameCtrls = [];
+  final List<TextEditingController> _venueAddrCtrls = [];
+  final List<int> _venueCourts = [];
+
+  static const int _defaultCourts = 4;
+
   // ── 경기 정보 ──────────────────────────
-  String _eventType = '혼복';
-  String _targetGrade = '전체';
+  /// 선택된 종별 (List). 최소 1개 이상 유지.
+  final Set<String> _selectedEvents = {'혼복'};
+
+  /// 선택된 대상급수. 모두 선택 = '전체' 칩 자동 ON.
+  final Set<String> _selectedGrades = {...Tournament.allTargetGrades};
   final _entryFeeCtrl = TextEditingController();
   final _deadlineCtrl = TextEditingController();
 
@@ -40,10 +55,76 @@ class _TournamentFormScreenState extends State<TournamentFormScreen> {
   final _descCtrl = TextEditingController();
 
   @override
+  void initState() {
+    super.initState();
+    final t = widget.initial;
+    if (t == null) {
+      _addVenueRow(); // 신규 등록 시 기본 1개소
+      return;
+    }
+    _nameCtrl.text = t.name;
+    _regionCtrl.text = t.region;
+    _tournamentType = t.tournamentType;
+    _startDate = t.startDate;
+    _endDate = t.endDate;
+    _selectedEvents
+      ..clear()
+      ..addAll(t.eventTypeList);
+    if (_selectedEvents.isEmpty) _selectedEvents.add('혼복');
+    _selectedGrades
+      ..clear()
+      ..addAll(t.targetGradeList);
+    if (_selectedGrades.isEmpty) {
+      _selectedGrades.addAll(Tournament.allTargetGrades);
+    }
+    if (t.entryFee > 0) _entryFeeCtrl.text = _fmtAmount(t.entryFee);
+    if (t.totalBudget > 0) _budgetCtrl.text = _fmtAmount(t.totalBudget);
+    if (t.citySupportAmount > 0) {
+      _citySupportCtrl.text = _fmtAmount(t.citySupportAmount);
+    }
+    _citySupportNoteCtrl.text = t.citySupportNote;
+    _hasClubShare = t.hasClubShare;
+    _acceptsDonation = t.acceptsDonation;
+    _descCtrl.text = t.description;
+
+    // 기존 venues 채우기 — 비어 있으면 단일 빈 행으로 시작
+    if (t.venues.isEmpty) {
+      _addVenueRow();
+    } else {
+      for (final v in t.venues) {
+        _venueNameCtrls.add(TextEditingController(text: v.name));
+        _venueAddrCtrls.add(TextEditingController(text: v.address));
+        _venueCourts.add(v.courts > 0 ? v.courts : _defaultCourts);
+      }
+    }
+  }
+
+  void _addVenueRow({String name = '', String address = '', int? courts}) {
+    _venueNameCtrls.add(TextEditingController(text: name));
+    _venueAddrCtrls.add(TextEditingController(text: address));
+    _venueCourts.add(courts ?? _defaultCourts);
+  }
+
+  void _removeVenueRow() {
+    if (_venueNameCtrls.length <= 1) return;
+    _venueNameCtrls.removeLast().dispose();
+    _venueAddrCtrls.removeLast().dispose();
+    _venueCourts.removeLast();
+  }
+
+  static String _fmtAmount(int v) => v.toString().replaceAllMapped(
+      RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},');
+
+  @override
   void dispose() {
     _nameCtrl.dispose();
     _regionCtrl.dispose();
-    _venueCtrl.dispose();
+    for (final c in _venueNameCtrls) {
+      c.dispose();
+    }
+    for (final c in _venueAddrCtrls) {
+      c.dispose();
+    }
     _entryFeeCtrl.dispose();
     _deadlineCtrl.dispose();
     _budgetCtrl.dispose();
@@ -90,27 +171,66 @@ class _TournamentFormScreenState extends State<TournamentFormScreen> {
       return;
     }
 
+    final prev = widget.initial;
+
+    // 폼의 경기장 목록 → List<Venue>. 이름이 비어있는 행은 제외.
+    final builtVenues = <Venue>[];
+    for (var i = 0; i < _venueNameCtrls.length; i++) {
+      final name = _venueNameCtrls[i].text.trim();
+      if (name.isEmpty) continue;
+      final addr = _venueAddrCtrls[i].text.trim();
+      // 기존 venue 의 id/colorHex 보존 시도
+      final existing =
+          (prev != null && i < prev.venues.length) ? prev.venues[i] : null;
+      builtVenues.add(Venue(
+        id: existing?.id ?? 'v${i + 1}',
+        name: name,
+        address: addr,
+        courts: _venueCourts[i],
+        colorHex: existing?.colorHex ??
+            Venue.defaultColors[i % Venue.defaultColors.length],
+      ));
+    }
+
     final t = Tournament(
-      id: 't_${DateTime.now().millisecondsSinceEpoch}',
+      id: prev?.id ?? 't_${DateTime.now().millisecondsSinceEpoch}',
       name: _nameCtrl.text.trim(),
       region: _regionCtrl.text.trim(),
       tournamentType: _tournamentType,
       startDate: _startDate,
       endDate: _endDate.isEmpty ? _startDate : _endDate,
-      venue: _venueCtrl.text.trim(),
-      eventType: _eventType,
-      targetGrade: _targetGrade,
+      eventType: Tournament.allEventTypes
+          .where(_selectedEvents.contains)
+          .join(','),
+      targetGrade: Tournament.allTargetGrades
+          .where(_selectedGrades.contains)
+          .join(','),
       entryFee: _parseAmount(_entryFeeCtrl.text),
-      status: 'upcoming',
+      status: prev?.status ?? 'upcoming',
+      participantCount: prev?.participantCount ?? 0,
+      progressPercent: prev?.progressPercent ?? 0,
       description: _descCtrl.text.trim(),
       totalBudget: budget,
       citySupportAmount: citySupport,
       citySupportNote: _citySupportNoteCtrl.text.trim(),
       hasClubShare: _hasClubShare,
       acceptsDonation: _acceptsDonation,
+      ageGroups: prev?.ageGroups ?? Tournament.defaultAgeGroups,
+      gradeGroups: prev?.gradeGroups ?? Tournament.defaultGradeGroups,
+      venues: builtVenues,
     );
 
-    SampleData.tournaments.add(t);
+    if (_isEdit) {
+      final idx = SampleData.tournaments.indexWhere((x) => x.id == t.id);
+      if (idx >= 0) {
+        SampleData.tournaments[idx] = t;
+      } else {
+        SampleData.tournaments.add(t);
+      }
+    } else {
+      SampleData.tournaments.add(t);
+    }
+    SampleData.saveTournaments();
     Navigator.pop(context, t);
   }
 
@@ -124,55 +244,49 @@ class _TournamentFormScreenState extends State<TournamentFormScreen> {
   Widget build(BuildContext context) => Scaffold(
         backgroundColor: AppColors.gray,
         appBar: AppBar(
-          title: const Text('대회 등록',
-              style: TextStyle(fontSize: 19, fontWeight: FontWeight.w700)),
+          title: Text(_isEdit ? '대회 수정' : '대회 등록',
+              style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w700)),
           centerTitle: false,
           elevation: 0,
         ),
         body: SingleChildScrollView(
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
           child:
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             // ── 기본 정보 ─────────────────────
             _section('기본 정보'),
-            _field('대회명', _f(_nameCtrl, hint: '예: 2026 협회장기 배드민턴 대회')),
-            const SizedBox(height: 12),
+            _field(
+                '대회명',
+                _f(_nameCtrl,
+                    hint: '예: 2026 협회장기 배드민턴 대회',
+                    style: const TextStyle(fontWeight: FontWeight.w600))),
+            const SizedBox(height: 6),
             Row(children: [
               Expanded(child: _field('지역', _f(_regionCtrl, hint: '예: 과천시'))),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               Expanded(child: _field('대회 분류', _typeDropdown())),
             ]),
-            const SizedBox(height: 12),
+            const SizedBox(height: 6),
             Row(children: [
               Expanded(child: _field('시작일', _dateField(_startDate, true))),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               Expanded(child: _field('종료일', _dateField(_endDate, false))),
             ]),
-            const SizedBox(height: 12),
-            _field('대회 장소', _f(_venueCtrl, hint: '체육관명 또는 주소')),
+            const SizedBox(height: 10),
+            _venueSection(),
 
-            const SizedBox(height: 18),
+            const SizedBox(height: 16),
             // ── 경기 정보 ─────────────────────
             _section('경기 정보'),
-            Row(children: [
-              Expanded(
-                  child: _field(
-                      '종별',
-                      _dd(_eventType, ['혼복', '남복', '여복', '전체'],
-                          (v) => setState(() => _eventType = v)))),
-              const SizedBox(width: 10),
-              Expanded(
-                  child: _field(
-                      '대상 급수',
-                      _dd(_targetGrade, ['전체', 'A급', 'B급', 'C급', 'D급', '초심'],
-                          (v) => setState(() => _targetGrade = v)))),
-            ]),
-            const SizedBox(height: 12),
+            _field('종별', _eventChips()),
+            const SizedBox(height: 6),
+            _field('대상 급수', _gradeChips()),
+            const SizedBox(height: 6),
             Row(children: [
               Expanded(
                   child: _field('참가비 (원)',
                       _f(_entryFeeCtrl, hint: '30,000', isAmount: true))),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               Expanded(
                   child: _field(
                       '신청 마감일',
@@ -180,23 +294,23 @@ class _TournamentFormScreenState extends State<TournamentFormScreen> {
                           ctrl: _deadlineCtrl))),
             ]),
 
-            const SizedBox(height: 18),
+            const SizedBox(height: 16),
             // ── 예산 정보 (NEW) ────────────────
             _section('예산 정보', subtitle: '대회 예산과 시·지자체 지원금을 별도 관리합니다'),
             _field(
                 '총 예산 (원)', _f(_budgetCtrl, hint: '6,800,000', isAmount: true)),
-            const SizedBox(height: 12),
+            const SizedBox(height: 6),
             _field(
                 '시 지원금 (원)',
                 _f(_citySupportCtrl,
                     hint: '0 (지원금이 없으면 비워두세요)', isAmount: true)),
-            const SizedBox(height: 12),
+            const SizedBox(height: 6),
             _field('시 지원 항목·조건',
                 _f(_citySupportNoteCtrl, hint: '예: 체육관 대여비 일부 지원')),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             _budgetPreview(),
 
-            const SizedBox(height: 18),
+            const SizedBox(height: 16),
             // ── 운영 옵션 (NEW) ────────────────
             _section('운영 옵션'),
             _toggleTile(
@@ -205,7 +319,7 @@ class _TournamentFormScreenState extends State<TournamentFormScreen> {
               value: _hasClubShare,
               onChanged: (v) => setState(() => _hasClubShare = v),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             _toggleTile(
               title: '찬조 받기',
               subtitle: '개인·기업의 현금/물품 찬조를 추적',
@@ -213,20 +327,25 @@ class _TournamentFormScreenState extends State<TournamentFormScreen> {
               onChanged: (v) => setState(() => _acceptsDonation = v),
             ),
 
-            const SizedBox(height: 18),
+            const SizedBox(height: 16),
             // ── 안내 사항 ─────────────────────
             _section('안내 사항'),
             TextField(
               controller: _descCtrl,
               maxLines: 3,
-              decoration: const InputDecoration(hintText: '대회 관련 안내 사항 입력'),
+              decoration: const InputDecoration(
+                hintText: '대회 관련 안내 사항 입력',
+                isDense: true,
+                contentPadding:
+                    EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 16),
           ]),
         ),
         bottomNavigationBar: FormActionBar(
           onSubmit: _save,
-          submitLabel: '등록',
+          submitLabel: _isEdit ? '저장' : '등록',
         ),
       );
 
@@ -248,7 +367,7 @@ class _TournamentFormScreenState extends State<TournamentFormScreen> {
             ),
             Text(title,
                 style: const TextStyle(
-                    fontSize: 14,
+                    fontSize: 15,
                     fontWeight: FontWeight.w800,
                     color: AppColors.text)),
             if (subtitle != null) ...[
@@ -256,7 +375,7 @@ class _TournamentFormScreenState extends State<TournamentFormScreen> {
               Expanded(
                 child: Text(subtitle,
                     style:
-                        const TextStyle(fontSize: 11, color: AppColors.muted),
+                        const TextStyle(fontSize: 12, color: AppColors.muted),
                     overflow: TextOverflow.ellipsis),
               ),
             ],
@@ -269,17 +388,24 @@ class _TournamentFormScreenState extends State<TournamentFormScreen> {
         children: [
           Text(lbl,
               style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
                   color: AppColors.text2)),
-          const SizedBox(height: 5),
+          const SizedBox(height: 4),
           child,
         ],
       );
 
-  Widget _f(TextEditingController ctrl, {String? hint, bool isAmount = false}) {
+  static const _denseInputDecoration = InputDecoration(
+    isDense: true,
+    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+  );
+
+  Widget _f(TextEditingController ctrl,
+      {String? hint, bool isAmount = false, TextStyle? style}) {
     return TextField(
       controller: ctrl,
+      style: style,
       keyboardType: isAmount ? TextInputType.number : TextInputType.text,
       inputFormatters: isAmount
           ? [
@@ -287,26 +413,14 @@ class _TournamentFormScreenState extends State<TournamentFormScreen> {
               _ThousandsFormatter(),
             ]
           : null,
-      decoration: InputDecoration(hintText: hint),
+      decoration: _denseInputDecoration.copyWith(hintText: hint),
     );
   }
 
-  Widget _dd(
-          String value, List<String> items, ValueChanged<String> onChanged) =>
-      DropdownButtonFormField<String>(
-        value: items.contains(value) ? value : items.first,
-        decoration: const InputDecoration(),
-        items: items
-            .map((v) => DropdownMenuItem(value: v, child: Text(v)))
-            .toList(),
-        onChanged: (v) {
-          if (v != null) onChanged(v);
-        },
-      );
-
   Widget _typeDropdown() => DropdownButtonFormField<TournamentType>(
         value: _tournamentType,
-        decoration: const InputDecoration(),
+        isDense: true,
+        decoration: _denseInputDecoration,
         items: TournamentType.values
             .map((t) => DropdownMenuItem(value: t, child: Text(t.label)))
             .toList(),
@@ -341,7 +455,7 @@ class _TournamentFormScreenState extends State<TournamentFormScreen> {
         },
       ),
       child: Container(
-        height: 44,
+        height: 40,
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
           color: Colors.white,
@@ -381,7 +495,7 @@ class _TournamentFormScreenState extends State<TournamentFormScreen> {
     }
 
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: const Color(0xFFEAF2FF),
         borderRadius: BorderRadius.circular(10),
@@ -416,6 +530,259 @@ class _TournamentFormScreenState extends State<TournamentFormScreen> {
     );
   }
 
+  // ── 종별 칩 (다중 선택, 최소 1개) ─────────
+  Widget _eventChips() {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 6,
+      children: Tournament.allEventTypes.map((e) {
+        final selected = _selectedEvents.contains(e);
+        return GestureDetector(
+          onTap: () {
+            setState(() {
+              if (selected) {
+                // 마지막 1개 해제 차단
+                if (_selectedEvents.length <= 1) {
+                  _snack('최소 1개의 종별은 선택되어야 합니다.');
+                  return;
+                }
+                _selectedEvents.remove(e);
+              } else {
+                _selectedEvents.add(e);
+              }
+            });
+          },
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: selected ? AppColors.blue : Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: selected ? AppColors.blue : const Color(0xFFD8DEE8),
+                width: selected ? 1.5 : 1,
+              ),
+            ),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(selected ? Icons.check : Icons.circle_outlined,
+                  size: 14,
+                  color: selected ? Colors.white : const Color(0xFFB8BFCC)),
+              const SizedBox(width: 4),
+              Text(e,
+                  style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: selected ? Colors.white : AppColors.text2)),
+            ]),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  // ── 대상 급수 칩 (전체=마스터 토글, 개별 자유 선택) ──
+  Widget _gradeChips() {
+    const allGrades = Tournament.allTargetGrades;
+    final isAll = _selectedGrades.length == allGrades.length &&
+        allGrades.every(_selectedGrades.contains);
+
+    return Wrap(
+      spacing: 8,
+      runSpacing: 6,
+      children: [
+        _chip(
+          label: '전체',
+          selected: isAll,
+          onTap: () {
+            setState(() {
+              if (isAll) {
+                _selectedGrades.clear();
+              } else {
+                _selectedGrades
+                  ..clear()
+                  ..addAll(allGrades);
+              }
+            });
+          },
+        ),
+        for (final g in allGrades)
+          _chip(
+            label: g,
+            selected: _selectedGrades.contains(g),
+            onTap: () {
+              setState(() {
+                if (_selectedGrades.contains(g)) {
+                  _selectedGrades.remove(g);
+                } else {
+                  _selectedGrades.add(g);
+                }
+              });
+            },
+          ),
+      ],
+    );
+  }
+
+  Widget _chip({
+    required String label,
+    required bool selected,
+    required VoidCallback onTap,
+  }) =>
+      GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            color: selected ? AppColors.blue : Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: selected ? AppColors.blue : const Color(0xFFD8DEE8),
+              width: selected ? 1.5 : 1,
+            ),
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(selected ? Icons.check : Icons.circle_outlined,
+                size: 14,
+                color: selected ? Colors.white : const Color(0xFFB8BFCC)),
+            const SizedBox(width: 4),
+            Text(label,
+                style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: selected ? Colors.white : AppColors.text2)),
+          ]),
+        ),
+      );
+
+  // ── 경기장 섹션 (다중 입력) ───────────────
+  Widget _venueSection() {
+    final count = _venueNameCtrls.length;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // 사용 경기장 수 카운터
+        const Text('사용 경기장 수',
+            style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: AppColors.text2)),
+        const SizedBox(height: 4),
+        Container(
+          height: 40,
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: const Color(0xFFD8DEE8)),
+          ),
+          child: Row(children: [
+            _stepperBtn(
+              icon: Icons.remove,
+              enabled: count > 1,
+              onTap: () => setState(() => _removeVenueRow()),
+            ),
+            Expanded(
+              child: Center(
+                child: Text('$count 개소',
+                    style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.text)),
+              ),
+            ),
+            _stepperBtn(
+              icon: Icons.add,
+              enabled: true,
+              onTap: () => setState(() => _addVenueRow()),
+            ),
+          ]),
+        ),
+        const SizedBox(height: 10),
+        // 경기장 카드 리스트
+        for (var i = 0; i < count; i++) ...[
+          _venueCard(i),
+          if (i < count - 1) const SizedBox(height: 8),
+        ],
+      ],
+    );
+  }
+
+  Widget _stepperBtn({
+    required IconData icon,
+    required bool enabled,
+    required VoidCallback onTap,
+  }) =>
+      InkWell(
+        onTap: enabled ? onTap : null,
+        borderRadius: BorderRadius.circular(6),
+        child: Container(
+          width: 36,
+          height: 32,
+          alignment: Alignment.center,
+          child: Icon(icon,
+              size: 18,
+              color: enabled ? AppColors.blue : const Color(0xFFCFCFCF)),
+        ),
+      );
+
+  Widget _venueCard(int i) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFD8DEE8)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('경기장 ${i + 1}',
+              style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.muted)),
+          const SizedBox(height: 6),
+          _venueRow(
+            label: '대회장소',
+            child: _f(_venueNameCtrls[i], hint: '예: 과천시민체육관'),
+          ),
+          const SizedBox(height: 6),
+          _venueRow(
+            label: '위치',
+            child: _f(_venueAddrCtrls[i], hint: '예: 경기도 과천시 ...'),
+            leadingIcon: Icons.place_outlined,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _venueRow(
+      {required String label, required Widget child, IconData? leadingIcon}) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        SizedBox(
+          width: 64,
+          child: Row(children: [
+            if (leadingIcon != null) ...[
+              Icon(leadingIcon, size: 14, color: AppColors.muted),
+              const SizedBox(width: 4),
+            ],
+            Text(label,
+                style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.text2)),
+          ]),
+        ),
+        Expanded(child: child),
+      ],
+    );
+  }
+
   Widget _toggleTile({
     required String title,
     required String subtitle,
@@ -423,7 +790,7 @@ class _TournamentFormScreenState extends State<TournamentFormScreen> {
     required ValueChanged<bool> onChanged,
   }) =>
       Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(10),
@@ -442,7 +809,7 @@ class _TournamentFormScreenState extends State<TournamentFormScreen> {
                         fontSize: 14,
                         fontWeight: FontWeight.w700,
                         color: AppColors.text)),
-                const SizedBox(height: 2),
+                const SizedBox(height: 1),
                 Text(subtitle,
                     style:
                         const TextStyle(fontSize: 11, color: AppColors.muted)),

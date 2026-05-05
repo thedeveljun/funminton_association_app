@@ -575,10 +575,13 @@ class _RankingsScreenState extends State<RankingsScreen> {
       body: Column(
         children: [
           FilterChipRow(
-            items: ['전체', 'A급', 'B급', 'C급', 'D급', '초심'],
-            selected: _grade == '전체' ? '전체' : '${_grade}급',
-            onChanged: (v) => setState(() =>
-              _grade = v == '전체' ? '전체' : v.replaceAll('급','')),
+            items: ['전체', 'A조', 'B조', 'C조', 'D조', '초심조'],
+            selected: _grade == '전체'
+                ? '전체'
+                : (_grade == '초심' ? '초심조' : '${_grade}조'),
+            onChanged: (v) => setState(() => _grade = v == '전체'
+                ? '전체'
+                : (v == '초심조' ? '초심' : v.replaceAll('조', ''))),
           ),
           FilterChipRow(
             items: ['전체', '남자', '여자'],

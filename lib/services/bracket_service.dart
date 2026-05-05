@@ -1,6 +1,7 @@
 import 'dart:math';
 import '../models/match.dart';
 import '../models/player.dart';
+import '../models/venue.dart';
 
 /// 대진표 자동 생성 서비스
 /// 알고리즘 원칙:
@@ -19,7 +20,7 @@ class BracketService {
   static List<Match> generate({
     required String tournamentId,
     required List<Player> players,
-    required List<VenueConfig> venues,
+    required List<Venue> venues,
     required int totalDays,
     required Map<AssignKey, String> assignMap, // AssignKey → venueId
     int gamesPerPerson = 3,
@@ -180,7 +181,7 @@ class BracketService {
   static String _getVenueId(
     Player p,
     Map<AssignKey, String> assignMap,
-    List<VenueConfig> venues,
+    List<Venue> venues,
   ) {
     final key = AssignKey(p.decadeKey, p.grade);
     return assignMap[key] ?? venues.first.id;
