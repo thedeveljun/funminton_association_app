@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:badminton_association/screens/players/player_list_screen.dart';
+import '../../services/auth_service.dart';
 import '../../services/sample_data.dart';
 import '../clubs/club_list_screen.dart';
 import '../tournaments/tournament_list_screen.dart';
+import '../tournaments/tournament_schedule_screen.dart';
 import '../finance/finance_screen.dart';
 import '../rankings/rankings_screen.dart';
 import '../admin/admin_screen.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final VoidCallback? onLogout;
+  const HomeScreen({super.key, this.onLogout});
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
@@ -23,6 +26,25 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _go(Widget s) =>
       Navigator.push(context, MaterialPageRoute(builder: (_) => s));
+
+  Future<void> _confirmLogout() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('로그아웃'),
+        content: const Text('로그아웃하시겠습니까? 다시 사용하려면 비밀번호 입력이 필요합니다.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('취소')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('로그아웃')),
+        ],
+      ),
+    );
+    if (ok == true) widget.onLogout?.call();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -105,20 +127,38 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14),
-            child: Column(
-              children: [
-                _WideCard(
-                  icon: Icons.admin_panel_settings_rounded,
-                  title: '협회 행정',
-                  subtitle: '공문 · 이사회 · 공지',
-                  iconColor: const Color(0xFF0F766E),
-                  iconBgColor: const Color(0xFFCCFBF1),
-                  onTap: () => _go(AdminScreen()),
-                ),
-              ],
+            child: SizedBox(
+              height: 116,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _MenuCard(
+                      icon: Icons.event_note_rounded,
+                      title: '대회일정',
+                      subtitle: '연간 · 월별 · 상태',
+                      iconColor: const Color(0xFF0891B2),
+                      iconBgColor: const Color(0xFFCFFAFE),
+                      subtitleColor: const Color(0xFF0891B2),
+                      onTap: () => _go(const TournamentScheduleScreen()),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _MenuCard(
+                      icon: Icons.account_balance_rounded,
+                      title: '협회행정',
+                      subtitle: '공지 · 이사회 · 공문',
+                      iconColor: const Color(0xFF1F2937),
+                      iconBgColor: const Color(0xFFE5E7EB),
+                      subtitleColor: const Color(0xFF3730A3),
+                      onTap: () => _go(AdminScreen()),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
           Padding(
@@ -152,13 +192,19 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               const SizedBox(width: 10),
-              const Text(
-                '배드민턴 협회',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.white,
-                  letterSpacing: -0.6,
+              Expanded(
+                child: Text(
+                  AuthService.associationName.isEmpty
+                      ? '배드민턴협회'
+                      : AuthService.associationName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                    letterSpacing: -0.6,
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
@@ -176,7 +222,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
                 child: const Text(
-                  '협회 플랫폼',
+                  '플랫폼',
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w500,
@@ -184,6 +230,16 @@ class _HomeScreenState extends State<HomeScreen> {
                     letterSpacing: -0.2,
                   ),
                 ),
+              ),
+              const SizedBox(width: 4),
+              IconButton(
+                tooltip: '로그아웃',
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(
+                    minWidth: 36, minHeight: 36),
+                onPressed: _confirmLogout,
+                icon: const Icon(Icons.logout_rounded,
+                    color: Colors.white, size: 20),
               ),
             ],
           ),
@@ -510,99 +566,6 @@ class _MenuCard extends StatelessWidget {
                   height: 1.25,
                   letterSpacing: -0.2,
                 ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _WideCard extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final VoidCallback onTap;
-  final Color iconColor;
-  final Color iconBgColor;
-
-  const _WideCard({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-    required this.iconColor,
-    required this.iconBgColor,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(20),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(20),
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: const Color(0xFFC7D5F0),
-              width: 1.8,
-            ),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x08000000),
-                blurRadius: 6,
-                offset: Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 52,
-                height: 52,
-                decoration: BoxDecoration(
-                  color: iconBgColor,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Icon(icon, size: 20, color: iconColor),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                        color: Color(0xFF1A1A1A),
-                        letterSpacing: -0.4,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      subtitle,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                        color: Color(0xFF737C8B),
-                        letterSpacing: -0.2,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const Icon(
-                Icons.arrow_forward_ios_rounded,
-                size: 14,
-                color: Color(0xFF9AA3B2),
               ),
             ],
           ),

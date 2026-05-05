@@ -169,16 +169,17 @@ class Tournament {
     return parts.isEmpty ? ['혼복'] : parts;
   }
 
-  /// 콤마 구분 targetGrade → List<String>. 'A조,B조,...' 형식만 반환.
-  /// legacy '전체' 는 모든 개별 급수로 풀어서 반환.
-  /// 빈 값이면 모든 급수 (= '전체') 로 fallback.
+  /// 콤마 구분 targetGrade → List<String>.
+  /// 'A조'/'B조'/... 기본 라벨 외에 사용자 정의 급수(자강조, E조 등)도
+  /// 그대로 보존되어 반환된다. legacy 'A급'/'초심' 등은 정규화 후 노출.
+  /// 빈 값/'전체' 는 기본 급수 전체로 fallback.
   List<String> get targetGradeList {
     final raw = targetGrade.trim();
     if (raw.isEmpty || raw == '전체') return List.of(allTargetGrades);
     final parts = raw
         .split(',')
         .map((s) => _normalizeGradeLabel(s.trim()))
-        .where((s) => allTargetGrades.contains(s))
+        .where((s) => s.isNotEmpty)
         .toList();
     return parts.isEmpty ? List.of(allTargetGrades) : parts;
   }

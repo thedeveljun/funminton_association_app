@@ -12,12 +12,14 @@ class AppColors {
   // ── 메인 ──────────────────────────────────
   static const Color primary = Color(0xFF0F2557); // 딥 네이비
   static const Color primaryDark = Color(0xFF162040); // 미드나잇
-  static const Color primaryMid = Color(0xFF1E4FC2); // 로열 블루
+  // 선택/강조용 블루 — 과거 #1E4FC2(로열 블루)에서 채도·명도를 한 단계
+  // 낮춰 통일감 있는 톤으로 조정. 모든 선택 상태(칩/스위치/버튼)에 사용.
+  static const Color primaryMid = Color(0xFF2D4F8E); // 머트 블루
   static const Color primaryLight = Color(0xFFE8EFFE); // 라이트 블루
 
   // 기존 호환용 alias
   static const Color blue = Color(0xFF0F2557);
-  static const Color blue2 = Color(0xFF1E4FC2);
+  static const Color blue2 = Color(0xFF2D4F8E);
   static const Color blue3 = Color(0xFFE8EFFE);
   static const Color blueDark = Color(0xFF162040);
 

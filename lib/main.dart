@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'core/theme/app_theme.dart';
-import 'screens/home/home_screen.dart';
+import 'screens/auth/root_gate.dart';
+import 'services/auth_service.dart';
 import 'services/sample_data.dart';
 
 void main() async {
@@ -14,6 +15,7 @@ void main() async {
 
   // 저장된 데이터 로드 (있으면 그걸 쓰고, 없으면 기본값 사용)
   await SampleData.loadFromStorage();
+  await AuthService.init();
 
   runApp(const BadmintonAssociationApp());
 }
@@ -27,7 +29,7 @@ class BadmintonAssociationApp extends StatelessWidget {
       title: '배드민턴 협회',
       theme: AppTheme.light,
       debugShowCheckedModeBanner: false,
-      home: const HomeScreen(),
+      home: const RootGate(),
       builder: (context, child) => MediaQuery(
         data: MediaQuery.of(context).copyWith(textScaler: TextScaler.noScaling),
         child: child!,

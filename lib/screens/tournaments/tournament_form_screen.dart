@@ -4,6 +4,7 @@ import '../../core/theme/app_colors.dart';
 import '../../models/tournament.dart';
 import '../../models/venue.dart';
 import '../../services/sample_data.dart';
+import '../../services/storage_service.dart';
 import '../../widgets/common/form_action_bar.dart';
 
 class TournamentFormScreen extends StatefulWidget {
@@ -40,6 +41,12 @@ class _TournamentFormScreenState extends State<TournamentFormScreen> {
 
   /// 선택된 대상급수. 모두 선택 = '전체' 칩 자동 ON.
   final Set<String> _selectedGrades = {...Tournament.allTargetGrades};
+
+  /// 표시할 급수 목록 (기본 + 사용자 추가). 선수/동호인 관리 화면과 동일한
+  /// SharedPreferences 키(data_custom_grades_v1)를 공유해서 한 번 추가한
+  /// 자강조/E조 등이 모든 급수 칩에 함께 노출됨.
+  List<String> _targetGrades = [...Tournament.allTargetGrades];
+
   final _entryFeeCtrl = TextEditingController();
   final _deadlineCtrl = TextEditingController();
 
@@ -59,6 +66,7 @@ class _TournamentFormScreenState extends State<TournamentFormScreen> {
   void initState() {
     super.initState();
     final t = widget.initial;
+    _loadCustomGrades();
     if (t == null) {
       _addVenueRow(); // 신규 등록 시 기본 1개소
       return;
@@ -98,6 +106,46 @@ class _TournamentFormScreenState extends State<TournamentFormScreen> {
         _venueCourts.add(v.courts > 0 ? v.courts : _defaultCourts);
       }
     }
+  }
+
+  Future<void> _loadCustomGrades() async {
+    final saved = await StorageService.loadCustomGrades();
+    if (!mounted || saved.isEmpty) return;
+    final extras =
+        saved.where((g) => !_targetGrades.contains(g)).toList();
+    if (extras.isEmpty) return;
+    setState(() {
+      _targetGrades.addAll(extras);
+      // 신규 등록이면 새 급수도 기본 선택 상태로 노출
+      if (widget.initial == null) _selectedGrades.addAll(extras);
+    });
+  }
+
+  Future<void> _persistCustomGrades() async {
+    final custom = _targetGrades
+        .where((g) => !Tournament.allTargetGrades.contains(g))
+        .toList();
+    await StorageService.saveCustomGrades(custom);
+  }
+
+  Future<void> _addCustomGrade(String label) async {
+    if (_targetGrades.contains(label)) {
+      _snack('이미 존재하는 급수입니다.');
+      return;
+    }
+    setState(() {
+      _targetGrades.add(label);
+      _selectedGrades.add(label);
+    });
+    await _persistCustomGrades();
+  }
+
+  Future<void> _removeCustomGrade(String label) async {
+    setState(() {
+      _targetGrades.remove(label);
+      _selectedGrades.remove(label);
+    });
+    await _persistCustomGrades();
   }
 
   void _addVenueRow({String name = '', String address = '', int? courts}) {
@@ -203,9 +251,8 @@ class _TournamentFormScreenState extends State<TournamentFormScreen> {
       eventType: Tournament.allEventTypes
           .where(_selectedEvents.contains)
           .join(','),
-      targetGrade: Tournament.allTargetGrades
-          .where(_selectedGrades.contains)
-          .join(','),
+      targetGrade:
+          _targetGrades.where(_selectedGrades.contains).join(','),
       entryFee: _parseAmount(_entryFeeCtrl.text),
       status: prev?.status ?? 'upcoming',
       participantCount: prev?.participantCount ?? 0,
@@ -534,15 +581,16 @@ class _TournamentFormScreenState extends State<TournamentFormScreen> {
   // ── 종별 칩 (다중 선택, 최소 1개) ─────────
   Widget _eventChips() {
     return Wrap(
-      spacing: 8,
+      spacing: 6,
       runSpacing: 6,
       children: Tournament.allEventTypes.map((e) {
         final selected = _selectedEvents.contains(e);
-        return GestureDetector(
+        return _chip(
+          label: e,
+          selected: selected,
           onTap: () {
             setState(() {
               if (selected) {
-                // 마지막 1개 해제 차단
                 if (_selectedEvents.length <= 1) {
                   _snack('최소 1개의 종별은 선택되어야 합니다.');
                   return;
@@ -553,43 +601,18 @@ class _TournamentFormScreenState extends State<TournamentFormScreen> {
               }
             });
           },
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 120),
-            padding:
-                const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            decoration: BoxDecoration(
-              color: selected ? AppColors.blue : Colors.white,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: selected ? AppColors.blue : const Color(0xFFD8DEE8),
-                width: selected ? 1.5 : 1,
-              ),
-            ),
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
-              Icon(selected ? Icons.check : Icons.circle_outlined,
-                  size: 14,
-                  color: selected ? Colors.white : const Color(0xFFB8BFCC)),
-              const SizedBox(width: 4),
-              Text(e,
-                  style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: selected ? Colors.white : AppColors.text2)),
-            ]),
-          ),
         );
       }).toList(),
     );
   }
 
-  // ── 대상 급수 칩 (전체=마스터 토글, 개별 자유 선택) ──
+  // ── 대상 급수 칩 (전체=마스터 토글, 개별 자유 선택, +로 자강조/E조 등 추가) ──
   Widget _gradeChips() {
-    const allGrades = Tournament.allTargetGrades;
-    final isAll = _selectedGrades.length == allGrades.length &&
-        allGrades.every(_selectedGrades.contains);
+    final isAll = _targetGrades.isNotEmpty &&
+        _targetGrades.every(_selectedGrades.contains);
 
     return Wrap(
-      spacing: 8,
+      spacing: 6,
       runSpacing: 6,
       children: [
         _chip(
@@ -602,12 +625,12 @@ class _TournamentFormScreenState extends State<TournamentFormScreen> {
               } else {
                 _selectedGrades
                   ..clear()
-                  ..addAll(allGrades);
+                  ..addAll(_targetGrades);
               }
             });
           },
         ),
-        for (final g in allGrades)
+        for (final g in _targetGrades)
           _chip(
             label: g,
             selected: _selectedGrades.contains(g),
@@ -621,7 +644,84 @@ class _TournamentFormScreenState extends State<TournamentFormScreen> {
               });
             },
           ),
+        _AddChipButton(onTap: _showGradeManageDialog),
       ],
+    );
+  }
+
+  void _showGradeManageDialog() {
+    final ctrl = TextEditingController();
+    showDialog<void>(
+      context: context,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (ctx, setStateD) {
+          return AlertDialog(
+            title: const Text('급수 추가/삭제'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextField(
+                    controller: ctrl,
+                    autofocus: true,
+                    decoration:
+                        const InputDecoration(hintText: '예: 자강조, E조'),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    '추가한 급수는 선수/동호인 관리 화면과 공유됩니다.',
+                    style: TextStyle(fontSize: 11, color: AppColors.muted),
+                  ),
+                  if (_targetGrades.isNotEmpty) ...[
+                    const SizedBox(height: 14),
+                    const Text('급수 목록',
+                        style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.muted)),
+                    const SizedBox(height: 4),
+                    ..._targetGrades.map((g) => Row(children: [
+                          Expanded(
+                              child: Text(g,
+                                  style:
+                                      const TextStyle(fontSize: 14))),
+                          IconButton(
+                            tooltip: '삭제',
+                            icon: const Icon(Icons.delete_outline,
+                                size: 18, color: AppColors.red),
+                            onPressed: () async {
+                              await _removeCustomGrade(g);
+                              setStateD(() {});
+                            },
+                          ),
+                        ])),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogCtx).pop(),
+                child: const Text('닫기'),
+              ),
+              TextButton(
+                onPressed: () async {
+                  final raw = ctrl.text.trim();
+                  if (raw.isEmpty) {
+                    _snack('라벨을 입력하세요.');
+                    return;
+                  }
+                  await _addCustomGrade(raw);
+                  ctrl.clear();
+                  setStateD(() {});
+                },
+                child: const Text('추가'),
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 
@@ -634,23 +734,24 @@ class _TournamentFormScreenState extends State<TournamentFormScreen> {
         onTap: onTap,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 120),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
           decoration: BoxDecoration(
-            color: selected ? AppColors.blue : Colors.white,
-            borderRadius: BorderRadius.circular(20),
+            color: selected ? AppColors.primaryMid : Colors.white,
+            borderRadius: BorderRadius.circular(999),
             border: Border.all(
-              color: selected ? AppColors.blue : const Color(0xFFD8DEE8),
+              color:
+                  selected ? AppColors.primaryMid : const Color(0xFFD8DEE8),
               width: selected ? 1.5 : 1,
             ),
           ),
           child: Row(mainAxisSize: MainAxisSize.min, children: [
             Icon(selected ? Icons.check : Icons.circle_outlined,
-                size: 14,
+                size: 12,
                 color: selected ? Colors.white : const Color(0xFFB8BFCC)),
-            const SizedBox(width: 4),
+            const SizedBox(width: 3),
             Text(label,
                 style: TextStyle(
-                    fontSize: 13,
+                    fontSize: 12,
                     fontWeight: FontWeight.w700,
                     color: selected ? Colors.white : AppColors.text2)),
           ]),
@@ -835,7 +936,7 @@ class _TournamentFormScreenState extends State<TournamentFormScreen> {
           color: Colors.white,
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
-            color: value ? AppColors.blue : const Color(0xFFD8DEE8),
+            color: value ? AppColors.primaryMid : const Color(0xFFD8DEE8),
             width: value ? 1.5 : 1,
           ),
         ),
@@ -858,10 +959,29 @@ class _TournamentFormScreenState extends State<TournamentFormScreen> {
           ),
           Switch.adaptive(
             value: value,
-            activeColor: AppColors.blue,
+            activeColor: AppColors.primaryMid,
             onChanged: onChanged,
           ),
         ]),
+      );
+}
+
+class _AddChipButton extends StatelessWidget {
+  final VoidCallback onTap;
+  const _AddChipButton({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: AppColors.gray3, width: 1.5),
+          ),
+          child: const Icon(Icons.add, size: 14, color: AppColors.muted),
+        ),
       );
 }
 

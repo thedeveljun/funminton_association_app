@@ -4,6 +4,7 @@ import '../../core/theme/app_colors.dart';
 import '../../models/club.dart';
 import '../../models/player.dart';
 import '../../services/sample_data.dart';
+import '../../services/storage_service.dart';
 import '../../widgets/common/form_action_bar.dart';
 
 class _PhoneNumberFormatter extends TextInputFormatter {
@@ -45,6 +46,19 @@ class _PlayerFormScreenState extends State<PlayerFormScreen> {
   late String _grade;
   String? _selectedClubId;
 
+  /// 급수 드롭다운 옵션 (기본 + 사용자 추가 + 현재 값 보정)
+  /// 자강조/S조 등 기본 라벨을 모두 포함해 legacy 데이터로 인한 dropdown assertion 방지.
+  static const List<String> _builtinGrades = [
+    '자강조',
+    'S조',
+    'A조',
+    'B조',
+    'C조',
+    'D조',
+    '초심조',
+  ];
+  List<String> _gradeOptions = List.of(_builtinGrades);
+
   bool get _isEdit => widget.initial != null;
 
   @override
@@ -57,6 +71,30 @@ class _PlayerFormScreenState extends State<PlayerFormScreen> {
     _gender = p?.gender ?? '남';
     _grade = p?.grade ?? 'C조';
     _selectedClubId = p?.clubId;
+    _ensureGradeInOptions();
+    _loadCustomGrades();
+  }
+
+  /// 현재 _grade가 옵션에 없으면 추가 (예: 알 수 없는 legacy 값)
+  void _ensureGradeInOptions() {
+    if (_grade.isNotEmpty && !_gradeOptions.contains(_grade)) {
+      _gradeOptions = [..._gradeOptions, _grade];
+    }
+  }
+
+  Future<void> _loadCustomGrades() async {
+    final saved = await StorageService.loadCustomGrades();
+    if (!mounted || saved.isEmpty) return;
+    setState(() {
+      final merged = <String>[
+        ..._builtinGrades,
+        ...saved.where((g) => !_builtinGrades.contains(g)),
+      ];
+      if (_grade.isNotEmpty && !merged.contains(_grade)) {
+        merged.add(_grade);
+      }
+      _gradeOptions = merged;
+    });
   }
 
   @override
@@ -156,8 +194,8 @@ class _PlayerFormScreenState extends State<PlayerFormScreen> {
                     type: TextInputType.number)),
             const SizedBox(width: 10),
             Expanded(
-                child: _drop('급수', const ['A조', 'B조', 'C조', 'D조', '초심조'],
-                    _grade, (v) => setState(() => _grade = v!))),
+                child: _drop('급수', _gradeOptions, _grade,
+                    (v) => setState(() => _grade = v!))),
           ]),
           const SizedBox(height: 10),
           Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

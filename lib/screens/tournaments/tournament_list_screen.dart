@@ -430,50 +430,63 @@ class _TournamentCard extends StatelessWidget {
           width: 2.5,
         ),
       ),
-      // 카드 내부 패딩
-      padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
+      // 카드 내부 패딩 (top 만 +4 증가: 4 → 8)
+      padding: const EdgeInsets.fromLTRB(14, 8, 14, 4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 제목 + ⋮ 메뉴
+          // 제목 + 일정 (한 Column) | ⋮ 메뉴
+          // → 제목·일정이 strut 1.0 으로 밀착, 메뉴 높이의 영향 없음
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: Text(
-                  t.name,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 14.5,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.text,
-                    height: 1.1,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      t.name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      strutStyle: const StrutStyle(
+                        fontSize: 14.5,
+                        height: 1.0,
+                        forceStrutHeight: true,
+                      ),
+                      style: const TextStyle(
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.text,
+                        height: 1.0,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '${t.startDate} ~ ${t.endDate}',
+                      strutStyle: const StrutStyle(
+                        fontSize: 13.5,
+                        height: 1.0,
+                        forceStrutHeight: true,
+                      ),
+                      style: const TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.text2,
+                        height: 1.0,
+                      ),
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(width: 8),
               _buildMoreMenu(context),
             ],
           ),
-          const SizedBox(height: 2),
-
-          // 일정 — 1pt 크게 + 진하게
-          Text(
-            '${t.startDate} ~ ${t.endDate}',
-            style: const TextStyle(
-              fontSize: 13.5,
-              fontWeight: FontWeight.w500,
-              color: AppColors.text2,
-              height: 1.0,
-            ),
-          ),
-          const SizedBox(height: 6),
 
           // 태그 (급수, 경기장, 참가, 참가비) — '전체' 급수는 숨김
           Wrap(
             spacing: 6,
-            runSpacing: 3,
+            runSpacing: 0,
             children: [
               if (t.targetGrade.isNotEmpty &&
                   t.targetGrade != '전체' &&
@@ -489,30 +502,6 @@ class _TournamentCard extends StatelessWidget {
           // 액션 버튼
           Row(
             children: [
-              Expanded(
-                child: ElevatedButton(
-                  onPressed: onBracket,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primaryMid,
-                    foregroundColor: AppColors.white,
-                    elevation: 0,
-                    padding: const EdgeInsets.symmetric(vertical: 17),
-                    minimumSize: Size.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    visualDensity: VisualDensity.compact,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    textStyle: const TextStyle(
-                      fontSize: 13.5,
-                      fontWeight: FontWeight.w700,
-                      height: 1.0,
-                    ),
-                  ),
-                  child: const Text('대진표'),
-                ),
-              ),
-              const SizedBox(width: 8),
               Expanded(
                 child: OutlinedButton(
                   onPressed: onApply,
@@ -537,6 +526,30 @@ class _TournamentCard extends StatelessWidget {
                     ),
                   ),
                   child: const Text('참가 신청'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: onBracket,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primaryMid,
+                    foregroundColor: AppColors.white,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(vertical: 17),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    visualDensity: VisualDensity.compact,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    textStyle: const TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w700,
+                      height: 1.0,
+                    ),
+                  ),
+                  child: const Text('대진표'),
                 ),
               ),
             ],

@@ -46,8 +46,11 @@ class _BracketScreenState extends State<BracketScreen>
   final Set<String> _selected = {};
 
   int _totalDays = 1;
+  static const int _maxDays = 4;
   final _date1Ctrl = TextEditingController(text: '2026-05-10');
   final _date2Ctrl = TextEditingController(text: '2026-05-11');
+  final _date3Ctrl = TextEditingController(text: '2026-05-12');
+  final _date4Ctrl = TextEditingController(text: '2026-05-13');
   late List<Venue> _venues;
   final Map<AssignKey, String> _assignMap = {};
   Timer? _persistDebounce;
@@ -237,6 +240,8 @@ class _BracketScreenState extends State<BracketScreen>
     _tc.dispose();
     _date1Ctrl.dispose();
     _date2Ctrl.dispose();
+    _date3Ctrl.dispose();
+    _date4Ctrl.dispose();
     super.dispose();
   }
 
@@ -329,27 +334,29 @@ class _BracketScreenState extends State<BracketScreen>
           indicatorColor: AppColors.blue,
           tabs: [
             Tab(
+                height: 60,
                 child: Column(mainAxisSize: MainAxisSize.min, children: [
-              const Text('참가자',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-              Text('$selCount명', style: const TextStyle(fontSize: 11)),
-            ])),
-            Tab(
-                child: Column(mainAxisSize: MainAxisSize.min, children: [
-              const Text('설정',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-              Text(
-                  '${_venues.fold(0, (s, v) => s + v.courts)}코트·$_totalDays일',
-                  style: const TextStyle(fontSize: 11)),
-            ])),
-            Tab(
-                child: Column(mainAxisSize: MainAxisSize.min, children: [
-              const Text('대진표',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-              Text(_matches.isEmpty ? '-' : '${_matches.length}경기',
-                  style: const TextStyle(fontSize: 11)),
-            ])),
+                  const Text('참가자',
+                      style:
+                          TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                  Text('$selCount명', style: const TextStyle(fontSize: 11)),
+                ])),
             const Tab(
+                height: 60,
+                child: Text('설정',
+                    style:
+                        TextStyle(fontSize: 15, fontWeight: FontWeight.w600))),
+            Tab(
+                height: 60,
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  const Text('대진표',
+                      style:
+                          TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                  Text(_matches.isEmpty ? '-' : '${_matches.length}경기',
+                      style: const TextStyle(fontSize: 11)),
+                ])),
+            const Tab(
+                height: 60,
                 child: Text('성적',
                     style:
                         TextStyle(fontSize: 15, fontWeight: FontWeight.w600))),
@@ -529,12 +536,12 @@ class _DecadeToggleBar extends StatelessWidget {
                             horizontal: 11, vertical: 4),
                         decoration: BoxDecoration(
                           color: on
-                              ? const Color(0xFF2563EB)
+                              ? AppColors.primaryMid
                               : const Color(0xFFEFF6FF),
                           borderRadius: BorderRadius.circular(999),
                           border: Border.all(
                             color: on
-                                ? const Color(0xFF2563EB)
+                                ? AppColors.primaryMid
                                 : const Color(0xFFBFDBFE),
                             width: 1.5,
                           ),
@@ -547,7 +554,7 @@ class _DecadeToggleBar extends StatelessWidget {
                                 on ? FontWeight.w600 : FontWeight.w500,
                             color: on
                                 ? Colors.white
-                                : const Color(0xFF2563EB),
+                                : AppColors.primaryMid,
                             letterSpacing: -0.2,
                           ),
                         ),
@@ -725,12 +732,12 @@ class _GradeToggleBar extends StatelessWidget {
                             horizontal: 11, vertical: 4),
                         decoration: BoxDecoration(
                           color: on
-                              ? const Color(0xFF2563EB)
+                              ? AppColors.primaryMid
                               : const Color(0xFFEFF6FF),
                           borderRadius: BorderRadius.circular(999),
                           border: Border.all(
                             color: on
-                                ? const Color(0xFF2563EB)
+                                ? AppColors.primaryMid
                                 : const Color(0xFFBFDBFE),
                             width: 1.5,
                           ),
@@ -743,7 +750,7 @@ class _GradeToggleBar extends StatelessWidget {
                                 on ? FontWeight.w600 : FontWeight.w500,
                             color: on
                                 ? Colors.white
-                                : const Color(0xFF2563EB),
+                                : AppColors.primaryMid,
                             letterSpacing: -0.2,
                           ),
                         ),
@@ -1039,41 +1046,63 @@ class _DateCard extends StatelessWidget {
   final _BracketScreenState s;
   const _DateCard(this.s);
 
+  TextEditingController _ctrl(int day) {
+    switch (day) {
+      case 1:
+        return s._date1Ctrl;
+      case 2:
+        return s._date2Ctrl;
+      case 3:
+        return s._date3Ctrl;
+      case 4:
+        return s._date4Ctrl;
+      default:
+        return s._date1Ctrl;
+    }
+  }
+
+  Widget _dateField(int day) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('$day일차',
+              style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.text2)),
+          const SizedBox(height: 2),
+          TextField(
+              controller: _ctrl(day),
+              style: const TextStyle(fontSize: 14, height: 1.0),
+              decoration: const InputDecoration(
+                  isDense: true,
+                  isCollapsed: true,
+                  contentPadding:
+                      EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+                  suffixIcon: Padding(
+                      padding: EdgeInsets.only(right: 8),
+                      child: Icon(Icons.calendar_today, size: 14)),
+                  suffixIconConstraints:
+                      BoxConstraints(minWidth: 22, minHeight: 22))),
+        ],
+      );
+
   @override
   Widget build(BuildContext context) => _card(
         title: '대회 날짜',
-        subtitle: '최대 2일',
+        subtitle: '최대 ${_BracketScreenState._maxDays}일',
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('1일차',
-              style: TextStyle(fontSize: 11, color: AppColors.muted)),
-          const SizedBox(height: 2),
-          TextField(
-              controller: s._date1Ctrl,
-              decoration: const InputDecoration(
-                  isDense: true,
-                  contentPadding:
-                      EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  suffixIcon: Icon(Icons.calendar_today, size: 16))),
+          _dateField(1),
           const SizedBox(height: 6),
           Row(children: [
-            _dayBtn('1일 대회', s._totalDays == 1,
-                () => s.rebuild(() => s._totalDays = 1)),
-            const SizedBox(width: 8),
-            _dayBtn('2일 대회', s._totalDays == 2,
-                () => s.rebuild(() => s._totalDays = 2)),
+            for (int d = 1; d <= _BracketScreenState._maxDays; d++) ...[
+              if (d > 1) const SizedBox(width: 6),
+              _dayBtn('$d일', s._totalDays == d,
+                  () => s.rebuild(() => s._totalDays = d)),
+            ],
           ]),
-          if (s._totalDays == 2) ...[
+          for (int d = 2; d <= s._totalDays; d++) ...[
             const SizedBox(height: 6),
-            const Text('2일차',
-                style: TextStyle(fontSize: 11, color: AppColors.muted)),
-            const SizedBox(height: 2),
-            TextField(
-                controller: s._date2Ctrl,
-                decoration: const InputDecoration(
-                    isDense: true,
-                    contentPadding:
-                        EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    suffixIcon: Icon(Icons.calendar_today, size: 16))),
+            _dateField(d),
           ],
         ]),
       );
@@ -1116,15 +1145,15 @@ class _CounterButton extends StatelessWidget {
   Widget build(BuildContext context) => GestureDetector(
         onTap: onTap,
         child: Container(
-          width: 28,
-          height: 28,
+          width: 22,
+          height: 22,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: enabled ? AppColors.primaryMid : AppColors.gray,
           ),
           child: Icon(
             icon,
-            size: 16,
+            size: 13,
             color: enabled ? Colors.white : AppColors.gray3,
           ),
         ),
@@ -1177,16 +1206,17 @@ class _VenueEditCardState extends State<_VenueEditCard> {
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: disabled ? AppColors.gray : AppColors.white,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.divider, width: 1),
+        borderRadius: BorderRadius.circular(12),
+        // 파스텔 블루 보더 — 다른 카드와 톤 통일
+        border: Border.all(color: const Color(0xFFB8C9F0), width: 2.5),
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
           Text('경기장 ${widget.index + 1}',
               style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.muted)),
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.text2)),
           if (disabled) ...[
             const SizedBox(width: 8),
             Container(
@@ -1207,26 +1237,32 @@ class _VenueEditCardState extends State<_VenueEditCard> {
         const SizedBox(height: 6),
         TextField(
           controller: _nameCtrl,
+          style: const TextStyle(fontSize: 14, height: 1.0),
           decoration: const InputDecoration(
             labelText: '대회장소',
             hintText: '예: 과천시민체육관',
             isDense: true,
             contentPadding:
-                EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                EdgeInsets.symmetric(horizontal: 10, vertical: 9),
           ),
           onChanged: (val) => widget.s._updateVenueName(widget.index, val),
         ),
         const SizedBox(height: 6),
         TextField(
           controller: _addrCtrl,
+          style: const TextStyle(fontSize: 14, height: 1.0),
           decoration: const InputDecoration(
             labelText: '위치',
             hintText: '예: 경기도 과천시 중앙로 123',
-            prefixIcon:
-                Icon(Icons.location_on_outlined, size: 18, color: AppColors.gray3),
+            prefixIcon: Padding(
+                padding: EdgeInsets.only(left: 8, right: 4),
+                child: Icon(Icons.location_on_outlined,
+                    size: 14, color: AppColors.gray3)),
+            prefixIconConstraints:
+                BoxConstraints(minWidth: 22, minHeight: 22),
             isDense: true,
             contentPadding:
-                EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                EdgeInsets.symmetric(horizontal: 10, vertical: 9),
           ),
           maxLines: 1,
           onChanged: (val) =>
@@ -1249,12 +1285,12 @@ class _VenueEditCardState extends State<_VenueEditCard> {
           ),
           const SizedBox(width: 10),
           SizedBox(
-            width: 28,
+            width: 30,
             child: Text(
               '${v.courts}',
               textAlign: TextAlign.center,
               style: const TextStyle(
-                fontSize: 16,
+                fontSize: 17,
                 fontWeight: FontWeight.w800,
                 color: AppColors.text,
               ),
@@ -1475,7 +1511,16 @@ class _BracketTab extends StatelessWidget {
               style: TextStyle(fontSize: 14, color: AppColors.muted)),
           const SizedBox(height: 14),
           ElevatedButton(
-              onPressed: s._generateBracket, child: const Text('대진표 생성하기')),
+              onPressed: s._generateBracket,
+              style: ElevatedButton.styleFrom(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+              ),
+              child: const Text('대진표 생성하기',
+                  style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      height: 1.2))),
         ]),
       );
     }
@@ -1507,13 +1552,13 @@ class _BracketTab extends StatelessWidget {
         StatItem('${total}경기', '경기'),
         StatItem('$done완료', '완료'),
       ]),
-      if (s._totalDays == 2)
+      if (s._totalDays >= 2)
         Container(
           color: AppColors.white,
           child: Row(children: [
             _dayTab(context, 'all', '전체'),
-            _dayTab(context, '1', '1일차'),
-            _dayTab(context, '2', '2일차'),
+            for (int d = 1; d <= s._totalDays; d++)
+              _dayTab(context, '$d', '$d일차'),
           ]),
         ),
       Container(
@@ -1685,15 +1730,16 @@ Widget _card(
       margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
       decoration: BoxDecoration(
           color: AppColors.white,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: AppColors.gray2, width: .5)),
+          borderRadius: BorderRadius.circular(12),
+          // 파스텔 블루 보더 — 대회운영 카드와 톤 통일
+          border: Border.all(color: const Color(0xFFB8C9F0), width: 2.5)),
       padding: const EdgeInsets.all(10),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
           Text(title,
               style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
                   color: AppColors.text2)),
           if (subtitle != null) ...[
             const SizedBox(width: 6),

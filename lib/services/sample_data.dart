@@ -6,6 +6,8 @@ import '../models/club_share.dart';
 import '../models/donation.dart';
 import '../models/association_fee_payment.dart';
 import '../models/player_fee_payment.dart';
+import '../models/scheduled_tournament.dart';
+import '../models/admin_records.dart';
 import 'storage_service.dart';
 
 class SampleData {
@@ -490,12 +492,147 @@ class SampleData {
       tournaments.addAll(savedTournaments);
       print('✅ 저장된 대회 ${savedTournaments.length}개 로드됨');
     }
+
+    final savedScheduled = await StorageService.loadScheduledTournaments();
+    if (savedScheduled != null) {
+      scheduledTournaments.clear();
+      scheduledTournaments.addAll(savedScheduled);
+      print('✅ 저장된 외부 대회 일정 ${savedScheduled.length}개 로드됨');
+    }
+
+    final savedNotices = await StorageService.loadNotices();
+    if (savedNotices != null) {
+      notices.clear();
+      notices.addAll(savedNotices);
+      print('✅ 저장된 공지사항 ${savedNotices.length}건 로드됨');
+    }
+
+    final savedBoards = await StorageService.loadBoards();
+    if (savedBoards != null) {
+      boards.clear();
+      boards.addAll(savedBoards);
+      print('✅ 저장된 이사회 ${savedBoards.length}건 로드됨');
+    }
+
+    final savedDocs = await StorageService.loadDocs();
+    if (savedDocs != null) {
+      docs.clear();
+      docs.addAll(savedDocs);
+      print('✅ 저장된 공문 ${savedDocs.length}건 로드됨');
+    }
   }
 
   static Future<void> saveClubs() => StorageService.saveClubs(clubs);
   static Future<void> savePlayers() => StorageService.savePlayers(players);
   static Future<void> saveTournaments() =>
       StorageService.saveTournaments(tournaments);
+  static Future<void> saveScheduledTournaments() =>
+      StorageService.saveScheduledTournaments(scheduledTournaments);
+  static Future<void> saveNotices() => StorageService.saveNotices(notices);
+  static Future<void> saveBoards() => StorageService.saveBoards(boards);
+  static Future<void> saveDocs() => StorageService.saveDocs(docs);
+
+  // ── 협회 행정 — 공지사항 ─────────────────────
+  static final List<Notice> notices = [
+    const Notice(
+      id: 'n1',
+      title: '2026년도 협회비 납부 안내',
+      type: '중요',
+      date: '2026-04-10',
+      content: '각 클럽은 2026년 4월 30일까지 협회비를 납부해 주시기 바랍니다.',
+    ),
+    const Notice(
+      id: 'n2',
+      title: '2026 협회장배 대회 일정 공지',
+      type: '일반',
+      date: '2026-04-01',
+      content: '2026 협회장배 대회 일정이 확정되었습니다. 참가 신청은 4월 30일까지입니다.',
+    ),
+    const Notice(
+      id: 'n3',
+      title: '협회 임원 선출 안내',
+      type: '중요',
+      date: '2026-03-20',
+      content: '2026년도 협회 임원 선출이 진행됩니다.',
+    ),
+  ];
+
+  // ── 협회 행정 — 이사회 ─────────────────────
+  static final List<BoardMeeting> boards = [
+    const BoardMeeting(
+      id: 'b1',
+      title: '2026년 1분기 이사회',
+      date: '2026-04-15',
+      place: '협회 회의실',
+      status: '완료',
+      agenda: '예산안 승인, 협회장배 일정 확정',
+    ),
+    const BoardMeeting(
+      id: 'b2',
+      title: '2026년 2분기 이사회',
+      date: '2026-07-20',
+      place: '협회 회의실',
+      status: '예정',
+      agenda: '하반기 사업계획',
+    ),
+    const BoardMeeting(
+      id: 'b3',
+      title: '2026년 3분기 이사회',
+      date: '2026-10-12',
+      place: '협회 회의실',
+      status: '예정',
+      agenda: '',
+    ),
+  ];
+
+  // ── 협회 행정 — 공문 ──────────────────────
+  static final List<OfficialDoc> docs = [
+    const OfficialDoc(
+      id: 'd1',
+      title: '협회장배 개최 협조 요청',
+      date: '2026-03-25',
+      to: '강남구청',
+      content: '2026 협회장배 개최를 위한 행정 협조를 요청합니다.',
+    ),
+    const OfficialDoc(
+      id: 'd2',
+      title: '선수 등록 현황 보고',
+      date: '2026-03-01',
+      to: '대한배드민턴협회',
+      content: '2026년 1분기 선수 등록 현황을 보고드립니다.',
+    ),
+    const OfficialDoc(
+      id: 'd3',
+      title: '대회 심판 파견 요청',
+      date: '2026-02-14',
+      to: '서울시체육회',
+      content: '협회장배 심판 파견을 요청드립니다.',
+    ),
+  ];
+
+  // ── 외부 대회 일정 (관내 주관 X, 참가/참고용) ─────
+  static final List<ScheduledTournament> scheduledTournaments = [
+    const ScheduledTournament(
+      id: 's1',
+      name: '2026 생활대축전 배드민턴대회',
+      host: '대한배드민턴협회',
+      location: '경기도 수원시 / 수원실내체육관',
+      startDate: '2026-06-12',
+      endDate: '2026-06-13',
+      attending: true,
+      memo: '시도협회 주최 아님 — 클럽 자율 참가',
+    ),
+    const ScheduledTournament(
+      id: 's2',
+      name: '2026 전국 동호인 배드민턴 페스티벌',
+      host: '대한체육회',
+      location: '서울특별시 / 잠실학생체육관',
+      startDate: '2026-08-22',
+      endDate: '2026-08-23',
+      attending: false,
+      memo: '',
+    ),
+  ];
 
   // ── 클럽 ────────────────────────────────
 

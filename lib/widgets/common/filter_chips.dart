@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/theme/app_colors.dart';
 
 class FilterChipRow extends StatelessWidget {
   final List<String> options;
@@ -36,12 +37,12 @@ class FilterChipRow extends StatelessWidget {
                         const EdgeInsets.symmetric(horizontal: 11, vertical: 4),
                     decoration: BoxDecoration(
                       color: isOn
-                          ? const Color(0xFF2563EB)
+                          ? AppColors.primaryMid
                           : const Color(0xFFEFF6FF),
                       borderRadius: BorderRadius.circular(999),
                       border: Border.all(
                         color: isOn
-                            ? const Color(0xFF2563EB)
+                            ? AppColors.primaryMid
                             : const Color(0xFFBFDBFE),
                         width: 1.5,
                       ),
@@ -51,7 +52,7 @@ class FilterChipRow extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: isOn ? FontWeight.w600 : FontWeight.w500,
-                        color: isOn ? Colors.white : const Color(0xFF2563EB),
+                        color: isOn ? Colors.white : AppColors.primaryMid,
                         letterSpacing: -0.2,
                       ),
                     ),

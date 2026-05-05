@@ -88,7 +88,7 @@ class PlayerListItem extends StatelessWidget {
   Widget build(BuildContext context) => InkWell(
         onTap: onTap,
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
           decoration: const BoxDecoration(
               color: AppColors.white,
               border: Border(bottom: BorderSide(color: AppColors.divider))),
@@ -113,14 +113,14 @@ class PlayerListItem extends StatelessWidget {
                     Row(children: [
                       Text(player.name,
                           style: const TextStyle(
-                              fontSize: 14,
+                              fontSize: 15,
                               fontWeight: FontWeight.w700,
                               height: 1.1,
                               color: AppColors.text)),
                       const SizedBox(width: 4),
                       Text('(${player.gender}) ${player.age}세',
                           style: const TextStyle(
-                              fontSize: 13,
+                              fontSize: 14,
                               fontWeight: FontWeight.w600,
                               height: 1.1,
                               color: _subText)),
@@ -128,23 +128,13 @@ class PlayerListItem extends StatelessWidget {
                     const SizedBox(height: 1),
                     Text(player.clubName,
                         style: const TextStyle(
-                            fontSize: 12,
+                            fontSize: 13,
                             fontWeight: FontWeight.w500,
                             height: 1.1,
                             color: _subText)),
                   ])),
-              Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    GradePastelChip(player.grade),
-                    const SizedBox(height: 2),
-                    Text(player.phone,
-                        style: const TextStyle(
-                            fontSize: 11,
-                            height: 1.1,
-                            color: AppColors.blue2)),
-                  ]),
+              // 급수 칩만 표시 (전화번호 제거 + 세로 중앙 정렬)
+              Center(child: GradePastelChip(player.grade)),
             ],
           ),
         ),
