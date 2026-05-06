@@ -137,8 +137,7 @@ class _AdminScreenState extends State<AdminScreen>
               child: const Text('취소')),
           TextButton(
               onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('삭제',
-                  style: TextStyle(color: AppColors.red))),
+              child: const Text('삭제', style: TextStyle(color: AppColors.red))),
         ],
       ),
     );
@@ -261,12 +260,11 @@ class _NoticeList extends StatelessWidget {
           onTap: () => onTap(n),
           onLongPress: () => onDelete(n),
           child: Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
             decoration: BoxDecoration(
               color: alt ? const Color(0xFFEEF1F7) : AppColors.white,
-              border: const Border(
-                  bottom: BorderSide(color: AppColors.divider)),
+              border:
+                  const Border(bottom: BorderSide(color: AppColors.divider)),
             ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -280,9 +278,8 @@ class _NoticeList extends StatelessWidget {
                           padding: const EdgeInsets.symmetric(
                               horizontal: 8, vertical: 2),
                           decoration: BoxDecoration(
-                            color: isImportant
-                                ? AppColors.red3
-                                : AppColors.gray2,
+                            color:
+                                isImportant ? AppColors.red3 : AppColors.gray2,
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: Text(n.type,
@@ -308,8 +305,7 @@ class _NoticeList extends StatelessWidget {
                         const SizedBox(height: 2),
                         Text(n.content,
                             style: const TextStyle(
-                                fontSize: 13,
-                                color: Color(0xFF4B5563)),
+                                fontSize: 13, color: Color(0xFF4B5563)),
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis),
                       ],
@@ -354,12 +350,11 @@ class _BoardList extends StatelessWidget {
           onTap: () => onTap(it),
           onLongPress: () => onDelete(it),
           child: Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
             decoration: BoxDecoration(
               color: alt ? const Color(0xFFEEF1F7) : AppColors.white,
-              border: const Border(
-                  bottom: BorderSide(color: AppColors.divider)),
+              border:
+                  const Border(bottom: BorderSide(color: AppColors.divider)),
             ),
             child: Row(children: [
               Container(
@@ -405,8 +400,7 @@ class _BoardList extends StatelessWidget {
                 ),
               ),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
                   color: isDone ? AppColors.green3 : AppColors.blue3,
                   borderRadius: BorderRadius.circular(10),
@@ -450,12 +444,11 @@ class _DocumentList extends StatelessWidget {
           onTap: () => onTap(d),
           onLongPress: () => onDelete(d),
           child: Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
             decoration: BoxDecoration(
               color: alt ? const Color(0xFFEEF1F7) : AppColors.white,
-              border: const Border(
-                  bottom: BorderSide(color: AppColors.divider)),
+              border:
+                  const Border(bottom: BorderSide(color: AppColors.divider)),
             ),
             child: Row(children: [
               Container(
@@ -485,8 +478,7 @@ class _DocumentList extends StatelessWidget {
                           color: AppColors.text,
                         )),
                     const SizedBox(height: 2),
-                    Text(
-                        '${d.date}${d.to.isEmpty ? '' : ' → ${d.to}'}',
+                    Text('${d.date}${d.to.isEmpty ? '' : ' → ${d.to}'}',
                         style: const TextStyle(
                             fontSize: 13, color: Color(0xFF4B5563))),
                     if (d.content.isNotEmpty) ...[
@@ -500,8 +492,7 @@ class _DocumentList extends StatelessWidget {
                   ],
                 ),
               ),
-              const Icon(Icons.chevron_right,
-                  color: AppColors.gray3, size: 18),
+              const Icon(Icons.chevron_right, color: AppColors.gray3, size: 18),
             ]),
           ),
         );
@@ -546,9 +537,8 @@ class _FormShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final mq = MediaQuery.of(context);
-    final bottomInset = mq.viewInsets.bottom > 0
-        ? mq.viewInsets.bottom
-        : mq.padding.bottom;
+    final bottomInset =
+        mq.viewInsets.bottom > 0 ? mq.viewInsets.bottom : mq.padding.bottom;
     return Padding(
       padding: EdgeInsets.fromLTRB(16, 12, 16, 16 + bottomInset),
       child: SingleChildScrollView(
@@ -614,21 +604,23 @@ Widget _label(String text) => Padding(
               color: AppColors.text2)),
     );
 
+// 입력 박스 폰트 스타일 (기존보다 1pt 크고 약간 진하게)
+const _fieldTextStyle = TextStyle(fontSize: 15, fontWeight: FontWeight.w500);
+const _titleFieldStyle = TextStyle(fontSize: 15, fontWeight: FontWeight.w700);
+
 Widget _field(TextEditingController c,
         {String? hint, int maxLines = 1, TextStyle? style}) =>
     TextField(
       controller: c,
       maxLines: maxLines,
-      style: style,
+      style: style ?? _fieldTextStyle,
       decoration: InputDecoration(
         hintText: hint,
         isDense: true,
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        // 박스 높이 약 20% 축소: vertical 8 → 5
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
       ),
     );
-
-const _titleFieldStyle = TextStyle(fontWeight: FontWeight.w700);
 
 Future<String?> _pickDate(BuildContext context, String current) async {
   final initial = DateTime.tryParse(current) ?? DateTime.now();
@@ -645,7 +637,7 @@ Future<String?> _pickDate(BuildContext context, String current) async {
 Widget _dateBtn(String value, VoidCallback onTap) => GestureDetector(
       onTap: onTap,
       child: Container(
-        height: 40,
+        height: 32, // 40 → 32 (20% 축소)
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
           color: AppColors.surface,
@@ -655,10 +647,9 @@ Widget _dateBtn(String value, VoidCallback onTap) => GestureDetector(
         child: Row(children: [
           Text(value.isEmpty ? 'YYYY-MM-DD' : value,
               style: TextStyle(
-                fontSize: 14,
-                color: value.isEmpty
-                    ? const Color(0xFFAAAAAA)
-                    : AppColors.text,
+                fontSize: 15, // 14 → 15
+                fontWeight: FontWeight.w500, // 약간 진하게
+                color: value.isEmpty ? const Color(0xFFAAAAAA) : AppColors.text,
               )),
           const Spacer(),
           const Icon(Icons.calendar_today_outlined,
@@ -692,8 +683,7 @@ class _NoticeFormState extends State<_NoticeForm> {
     final n = widget.initial;
     _titleCtrl = TextEditingController(text: n?.title ?? '');
     _contentCtrl = TextEditingController(text: n?.content ?? '');
-    _date = n?.date ??
-        DateTime.now().toIso8601String().substring(0, 10);
+    _date = n?.date ?? DateTime.now().toIso8601String().substring(0, 10);
     _type = n?.type ?? '일반';
   }
 
@@ -710,8 +700,8 @@ class _NoticeFormState extends State<_NoticeForm> {
           .showSnackBar(const SnackBar(content: Text('제목을 입력하세요.')));
       return;
     }
-    final id = widget.initial?.id ??
-        'n_${DateTime.now().millisecondsSinceEpoch}';
+    final id =
+        widget.initial?.id ?? 'n_${DateTime.now().millisecondsSinceEpoch}';
     Navigator.pop(
         context,
         Notice(
@@ -736,28 +726,26 @@ class _NoticeFormState extends State<_NoticeForm> {
         const SizedBox(height: 8),
         Row(children: [
           Expanded(
-            child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _label('날짜'),
-                  _dateBtn(_date, () async {
-                    final picked = await _pickDate(context, _date);
-                    if (picked != null) setState(() => _date = picked);
-                  }),
-                ]),
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              _label('날짜'),
+              _dateBtn(_date, () async {
+                final picked = await _pickDate(context, _date);
+                if (picked != null) setState(() => _date = picked);
+              }),
+            ]),
           ),
           const SizedBox(width: 10),
           Expanded(
-            child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _label('분류'),
-                  _TypeSelector(
-                    options: const ['일반', '중요'],
-                    value: _type,
-                    onChanged: (v) => setState(() => _type = v),
-                  ),
-                ]),
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              _label('분류'),
+              _TypeSelector(
+                options: const ['일반', '중요'],
+                value: _type,
+                onChanged: (v) => setState(() => _type = v),
+              ),
+            ]),
           ),
         ]),
         const SizedBox(height: 8),
@@ -795,8 +783,7 @@ class _BoardFormState extends State<_BoardForm> {
     _titleCtrl = TextEditingController(text: b?.title ?? '');
     _placeCtrl = TextEditingController(text: b?.place ?? '');
     _agendaCtrl = TextEditingController(text: b?.agenda ?? '');
-    _date = b?.date ??
-        DateTime.now().toIso8601String().substring(0, 10);
+    _date = b?.date ?? DateTime.now().toIso8601String().substring(0, 10);
     _status = b?.status ?? '예정';
   }
 
@@ -814,8 +801,8 @@ class _BoardFormState extends State<_BoardForm> {
           .showSnackBar(const SnackBar(content: Text('제목을 입력하세요.')));
       return;
     }
-    final id = widget.initial?.id ??
-        'b_${DateTime.now().millisecondsSinceEpoch}';
+    final id =
+        widget.initial?.id ?? 'b_${DateTime.now().millisecondsSinceEpoch}';
     Navigator.pop(
         context,
         BoardMeeting(
@@ -836,33 +823,30 @@ class _BoardFormState extends State<_BoardForm> {
       onSubmit: _submit,
       children: [
         _label('제목'),
-        _field(_titleCtrl,
-            hint: '예: 2026년 2분기 이사회', style: _titleFieldStyle),
+        _field(_titleCtrl, hint: '예: 2026년 2분기 이사회', style: _titleFieldStyle),
         const SizedBox(height: 8),
         Row(children: [
           Expanded(
-            child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _label('일자'),
-                  _dateBtn(_date, () async {
-                    final picked = await _pickDate(context, _date);
-                    if (picked != null) setState(() => _date = picked);
-                  }),
-                ]),
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              _label('일자'),
+              _dateBtn(_date, () async {
+                final picked = await _pickDate(context, _date);
+                if (picked != null) setState(() => _date = picked);
+              }),
+            ]),
           ),
           const SizedBox(width: 10),
           Expanded(
-            child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _label('상태'),
-                  _TypeSelector(
-                    options: const ['예정', '완료'],
-                    value: _status,
-                    onChanged: (v) => setState(() => _status = v),
-                  ),
-                ]),
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              _label('상태'),
+              _TypeSelector(
+                options: const ['예정', '완료'],
+                value: _status,
+                onChanged: (v) => setState(() => _status = v),
+              ),
+            ]),
           ),
         ]),
         const SizedBox(height: 8),
@@ -902,8 +886,7 @@ class _DocFormState extends State<_DocForm> {
     _titleCtrl = TextEditingController(text: d?.title ?? '');
     _toCtrl = TextEditingController(text: d?.to ?? '');
     _contentCtrl = TextEditingController(text: d?.content ?? '');
-    _date = d?.date ??
-        DateTime.now().toIso8601String().substring(0, 10);
+    _date = d?.date ?? DateTime.now().toIso8601String().substring(0, 10);
   }
 
   @override
@@ -920,8 +903,8 @@ class _DocFormState extends State<_DocForm> {
           .showSnackBar(const SnackBar(content: Text('제목을 입력하세요.')));
       return;
     }
-    final id = widget.initial?.id ??
-        'd_${DateTime.now().millisecondsSinceEpoch}';
+    final id =
+        widget.initial?.id ?? 'd_${DateTime.now().millisecondsSinceEpoch}';
     Navigator.pop(
         context,
         OfficialDoc(
@@ -941,29 +924,26 @@ class _DocFormState extends State<_DocForm> {
       onSubmit: _submit,
       children: [
         _label('제목'),
-        _field(_titleCtrl,
-            hint: '예: 협회장배 개최 협조 요청', style: _titleFieldStyle),
+        _field(_titleCtrl, hint: '예: 협회장배 개최 협조 요청', style: _titleFieldStyle),
         const SizedBox(height: 8),
         Row(children: [
           Expanded(
-            child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _label('발송일'),
-                  _dateBtn(_date, () async {
-                    final picked = await _pickDate(context, _date);
-                    if (picked != null) setState(() => _date = picked);
-                  }),
-                ]),
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              _label('발송일'),
+              _dateBtn(_date, () async {
+                final picked = await _pickDate(context, _date);
+                if (picked != null) setState(() => _date = picked);
+              }),
+            ]),
           ),
           const SizedBox(width: 10),
           Expanded(
-            child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _label('수신처'),
-                  _field(_toCtrl, hint: '예: 강남구청'),
-                ]),
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              _label('수신처'),
+              _field(_toCtrl, hint: '예: 강남구청'),
+            ]),
           ),
         ]),
         const SizedBox(height: 8),
@@ -988,7 +968,7 @@ class _TypeSelector extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 40,
+      height: 32, // 40 → 32 (20% 축소)
       child: Row(
         children: options.map((o) {
           final on = o == value;
@@ -998,21 +978,19 @@ class _TypeSelector extends StatelessWidget {
               onTap: () => onChanged(o),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 120),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 12, vertical: 5), // 9 → 5
                 decoration: BoxDecoration(
                   color: on ? AppColors.primaryMid : Colors.white,
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(
-                    color: on
-                        ? AppColors.primaryMid
-                        : const Color(0xFFD8DEE8),
+                    color: on ? AppColors.primaryMid : const Color(0xFFD8DEE8),
                     width: on ? 1.5 : 1,
                   ),
                 ),
                 child: Text(o,
                     style: TextStyle(
-                      fontSize: 13,
+                      fontSize: 14, // 13 → 14
                       fontWeight: FontWeight.w700,
                       color: on ? Colors.white : AppColors.text2,
                     )),

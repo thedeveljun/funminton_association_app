@@ -85,57 +85,65 @@ class _LoginScreenState extends State<LoginScreen> {
                     fontWeight: FontWeight.w800,
                     color: AppColors.text),
               ),
-              const SizedBox(height: 4),
-              const Text(
-                '비밀번호를 입력해주세요.',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 13, color: AppColors.muted),
-              ),
               const SizedBox(height: 28),
-              TextField(
-                controller: _pwCtrl,
-                obscureText: _obscure,
-                autofocus: true,
-                onSubmitted: (_) => _submit(),
-                decoration: InputDecoration(
-                  hintText: '비밀번호',
-                  isDense: true,
-                  contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 12, vertical: 14),
-                  suffixIcon: IconButton(
-                    icon: Icon(
-                        _obscure
-                            ? Icons.visibility_off_outlined
-                            : Icons.visibility_outlined,
-                        size: 20),
-                    onPressed: () =>
-                        setState(() => _obscure = !_obscure),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 30),
+                child: TextField(
+                  controller: _pwCtrl,
+                  obscureText: _obscure,
+                  autofocus: true,
+                  onSubmitted: (_) => _submit(),
+                  style: const TextStyle(
+                      fontSize: 17, fontWeight: FontWeight.w600),
+                  decoration: InputDecoration(
+                    hintText: '비밀번호',
+                    isDense: true,
+                    contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                    suffixIconConstraints:
+                        const BoxConstraints(minWidth: 36, minHeight: 0),
+                    suffixIcon: IconButton(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      constraints:
+                          const BoxConstraints(minWidth: 36, minHeight: 0),
+                      icon: Icon(
+                          _obscure
+                              ? Icons.visibility_off_outlined
+                              : Icons.visibility_outlined,
+                          size: 20),
+                      onPressed: () => setState(() => _obscure = !_obscure),
+                    ),
                   ),
                 ),
               ),
               const SizedBox(height: 18),
-              ElevatedButton(
-                onPressed: (_busy || locked) ? null : _submit,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primaryMid,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 30),
+                child: ElevatedButton(
+                  onPressed: (_busy || locked) ? null : _submit,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primaryMid,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 9),
+                    minimumSize: const Size(0, 38),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
+                  child: _busy
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2,
+                          ),
+                        )
+                      : Text(locked ? '잠시 후 다시 시도' : '로그인',
+                          style: const TextStyle(
+                              fontSize: 15, fontWeight: FontWeight.w700)),
                 ),
-                child: _busy
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          color: Colors.white,
-                          strokeWidth: 2,
-                        ),
-                      )
-                    : Text(locked ? '잠시 후 다시 시도' : '로그인',
-                        style: const TextStyle(
-                            fontSize: 15, fontWeight: FontWeight.w700)),
               ),
               const SizedBox(height: 14),
               const Text(

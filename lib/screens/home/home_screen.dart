@@ -6,7 +6,6 @@ import '../clubs/club_list_screen.dart';
 import '../tournaments/tournament_list_screen.dart';
 import '../tournaments/tournament_schedule_screen.dart';
 import '../finance/finance_screen.dart';
-import '../rankings/rankings_screen.dart';
 import '../admin/admin_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -17,6 +16,14 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  // ============================================================
+  // 새 디자인 컬러 (그림2 스타일)
+  // ============================================================
+  static const Color _navyDark = Color(0xFF071833);
+  static const Color _gold = Color(0xFFFFC72C);
+  static const Color _blueAccent = Color(0xFF4A90E2);
+  static const Color _cardBg = Color(0xFF0A1F45);
+
   String _formatNumber(int n) {
     return n.toString().replaceAllMapped(
           RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
@@ -53,12 +60,11 @@ class _HomeScreenState extends State<HomeScreen> {
       body: ListView(
         padding: EdgeInsets.zero,
         children: [
-          Container(
-            color: const Color(0xFF2563EB),
-            child: SafeArea(bottom: false, child: _hero()),
-          ),
-          _statsBar(),
+          // ▼ NEW: 통합 히어로 (배경이미지 + 헤더 + 헤드라인 + 통계카드)
+          _heroWithStats(),
           const SizedBox(height: 16),
+
+          // ▼ 이하 메뉴 카드 / 최근 활동 (기존 그대로)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14),
             child: Column(
@@ -87,7 +93,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           iconColor: const Color(0xFF22A06B),
                           iconBgColor: const Color(0xFFD1FAE5),
                           subtitleColor: const Color(0xFF22A06B),
-                          onTap: () => _go(PlayerListScreen()),
+                          onTap: () => _go(const PlayerListScreen()),
                         ),
                       ),
                     ],
@@ -154,7 +160,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       iconColor: const Color(0xFF1F2937),
                       iconBgColor: const Color(0xFFE5E7EB),
                       subtitleColor: const Color(0xFF3730A3),
-                      onTap: () => _go(AdminScreen()),
+                      onTap: () => _go(const AdminScreen()),
                     ),
                   ),
                 ],
@@ -170,116 +176,111 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _hero() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 22),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+  // ============================================================
+  // NEW: 통합 히어로 + 통계 카드 (그림2 스타일, Stack 기반)
+  // ============================================================
+  Widget _heroWithStats() {
+    final ongoingCount =
+        SampleData.tournaments.where((t) => t.status == 'ongoing').length;
+
+    return Container(
+      width: double.infinity,
+      color: _navyDark,
+      child: Stack(
         children: [
-          Row(
-            children: [
-              Container(
-                width: 42,
-                height: 42,
-                clipBehavior: Clip.antiAlias,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(11),
-                ),
-                child: Image.asset(
-                  'assets/images/icon.png',
-                  fit: BoxFit.cover,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  AuthService.associationName.isEmpty
-                      ? '배드민턴협회'
-                      : AuthService.associationName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white,
-                    letterSpacing: -0.6,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 11,
-                  vertical: 5,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.18),
-                  borderRadius: BorderRadius.circular(99),
-                  border: Border.all(
-                    color: Colors.white.withOpacity(0.35),
-                    width: 1,
-                  ),
-                ),
-                child: const Text(
-                  '플랫폼',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.white,
-                    letterSpacing: -0.2,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 4),
-              IconButton(
-                tooltip: '로그아웃',
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(
-                    minWidth: 36, minHeight: 36),
-                onPressed: _confirmLogout,
-                icon: const Icon(Icons.logout_rounded,
-                    color: Colors.white, size: 20),
-              ),
-            ],
+          // ── 1) 셔틀콕 배경 이미지 (오른쪽에 작게 + 아래로 내림) ──
+          Positioned(
+            right: -20, // 살짝 오른쪽으로 빼서 화면 밖으로 흘리는 느낌
+            top: 30,
+            bottom: 0,
+            width: 220,
+            child: Image.asset(
+              'assets/images/bg_shuttlecock.jpg',
+              fit: BoxFit.cover,
+              alignment: Alignment.centerRight,
+              // 이미지 못 찾을 때 에러 대신 그냥 빈 공간으로 fallback
+              errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+            ),
           ),
-          const SizedBox(height: 18),
-          const FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
-            child: Text(
-              '운동은 즐겁게',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFFCCFF00),
-                height: 1.2,
-                letterSpacing: -0.8,
+
+          // ── 2) 좌→우 그라데이션 (왼쪽 텍스트 가독성 확보) ──
+          //    오른쪽은 완전 투명으로 두어 셔틀콕이 또렷하게 보이도록
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                  colors: [
+                    _navyDark,
+                    _navyDark.withValues(alpha: 0.85),
+                    _navyDark.withValues(alpha: 0.30),
+                    Colors.transparent,
+                  ],
+                  stops: const [0.0, 0.40, 0.75, 1.0],
+                ),
               ),
             ),
           ),
-          const FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
-            child: Text(
-              '협회운영은 스마트하게',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFFCCFF00),
-                height: 1.2,
-                letterSpacing: -0.8,
+
+          // ── 3) 콘텐츠 ──
+          SafeArea(
+            bottom: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildHeaderRow(),
+                  const SizedBox(height: 26),
+
+                  // 메인 헤드라인 1줄
+                  const FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      '협회 운영을',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                        height: 1.2,
+                        letterSpacing: -0.8,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  // 메인 헤드라인 2줄 (골드 강조)
+                  const FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      '더 스마트하게',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w600,
+                        color: _gold,
+                        height: 1.2,
+                        letterSpacing: -0.8,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    '클럽 · 선수 · 대회 · 재정 통합 관리',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w400,
+                      color: Colors.white.withValues(alpha: 0.82),
+                      letterSpacing: -0.2,
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+
+                  // 통계 카드 (실제 데이터)
+                  _buildStatsCard(ongoingCount),
+                ],
               ),
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            '클럽관리 · 선수관리 · 대회운영 · 재정관리 한 번에',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-              color: Colors.white.withOpacity(0.88),
-              letterSpacing: -0.2,
             ),
           ),
         ],
@@ -287,38 +288,117 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _statsBar() {
-    final ongoingCount =
-        SampleData.tournaments.where((t) => t.status == 'ongoing').length;
+  Widget _buildHeaderRow() {
+    return Row(
+      children: [
+        // 로고 (기존 icon.png + 블루 글로우)
+        Container(
+          width: 42,
+          height: 42,
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(11),
+            boxShadow: [
+              BoxShadow(
+                color: _blueAccent.withValues(alpha: 0.45),
+                blurRadius: 16,
+                spreadRadius: 0,
+              ),
+            ],
+          ),
+          child: Image.asset(
+            'assets/images/icon.png',
+            fit: BoxFit.cover,
+          ),
+        ),
+        const SizedBox(width: 10),
+        // 협회명 (동적)
+        Expanded(
+          child: Text(
+            AuthService.associationName.isEmpty
+                ? '배드민턴 협회'
+                : AuthService.associationName,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+              color: Colors.white,
+              letterSpacing: -0.6,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        // 로그아웃 버튼 (기존 기능 그대로)
+        IconButton(
+          tooltip: '로그아웃',
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+          onPressed: _confirmLogout,
+          icon: const Icon(
+            Icons.logout_rounded,
+            color: Colors.white,
+            size: 20,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatsCard(int ongoingCount) {
     return Container(
-      color: const Color.fromARGB(255, 18, 33, 116),
-      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+      decoration: BoxDecoration(
+        // 상단에 빛이 들어오는 듯한 하이라이트로 입체감
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Colors.white.withValues(alpha: 0.18),
+            _cardBg.withValues(alpha: 0.65),
+            _cardBg.withValues(alpha: 0.65),
+          ],
+          stops: const [0.0, 0.15, 1.0],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.18),
+          width: 1,
+        ),
+      ),
       child: Row(
         children: [
           Expanded(
             child: _StatItem(
+              icon: Icons.groups,
+              iconColor: _blueAccent,
               value: _formatNumber(SampleData.clubs.length),
               label: '소속클럽',
             ),
           ),
           Container(
             width: 1,
-            height: 24,
-            color: Colors.white.withOpacity(0.14),
+            height: 32,
+            color: Colors.white.withValues(alpha: 0.08),
           ),
           Expanded(
             child: _StatItem(
+              icon: Icons.person,
+              iconColor: _blueAccent,
               value: _formatNumber(SampleData.players.length),
               label: '등록선수',
             ),
           ),
           Container(
             width: 1,
-            height: 24,
-            color: Colors.white.withOpacity(0.14),
+            height: 32,
+            color: Colors.white.withValues(alpha: 0.08),
           ),
           Expanded(
             child: _StatItem(
+              icon: Icons.emoji_events,
+              iconColor: _gold,
               value: _formatNumber(ongoingCount),
               label: '진행대회',
             ),
@@ -328,6 +408,9 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // ============================================================
+  // 최근 활동 (기존 그대로)
+  // ============================================================
   Widget _recent() {
     return Material(
       color: Colors.white,
@@ -482,6 +565,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
+// ============================================================
+// 메뉴 카드 (기존 그대로)
+// ============================================================
 class _MenuCard extends StatelessWidget {
   final IconData icon;
   final String title;
@@ -575,37 +661,71 @@ class _MenuCard extends StatelessWidget {
   }
 }
 
+// ============================================================
+// 통계 아이템 (NEW: 아이콘 추가)
+// ============================================================
 class _StatItem extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
   final String value;
   final String label;
 
-  const _StatItem({required this.value, required this.label});
+  const _StatItem({
+    required this.icon,
+    required this.iconColor,
+    required this.value,
+    required this.label,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        FittedBox(
-          fit: BoxFit.scaleDown,
-          child: Text(
-            value,
-            style: const TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.w700,
-              color: Colors.white,
-              letterSpacing: -0.5,
+        Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            color: iconColor.withValues(alpha: 0.18),
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: iconColor.withValues(alpha: 0.35),
+              width: 1,
             ),
           ),
+          child: Icon(icon, size: 17, color: iconColor),
         ),
-        const SizedBox(height: 2),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
-            color: Colors.white.withOpacity(0.68),
-            letterSpacing: -0.2,
+        const SizedBox(width: 8),
+        Flexible(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  value,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white,
+                    letterSpacing: -0.5,
+                    height: 1.1,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.white.withValues(alpha: 0.65),
+                  letterSpacing: -0.2,
+                ),
+              ),
+            ],
           ),
         ),
       ],

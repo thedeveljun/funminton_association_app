@@ -102,7 +102,7 @@ class AppTheme {
           filled: true,
           fillColor: AppColors.surfaceAlt,
           contentPadding:
-              const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+              const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(10),
             borderSide: const BorderSide(color: AppColors.divider),
@@ -117,12 +117,12 @@ class AppTheme {
           ),
           hintStyle: const TextStyle(
             color: AppColors.gray3,
-            fontSize: 14,
-            fontWeight: FontWeight.w400,
+            fontSize: 15,
+            fontWeight: FontWeight.w500,
           ),
           labelStyle: const TextStyle(
             color: AppColors.text2,
-            fontSize: 13,
+            fontSize: 14,
             fontWeight: FontWeight.w600,
           ),
         ),

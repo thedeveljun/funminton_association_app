@@ -97,7 +97,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 13, color: AppColors.muted),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 4),
               _label('협회명'),
               _field(_assocCtrl, hint: '예: 과천시배드민턴협회'),
               const SizedBox(height: 10),
@@ -118,7 +118,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primaryMid,
                   foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  padding: const EdgeInsets.symmetric(vertical: 9),
+                  minimumSize: const Size(0, 38),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -160,23 +162,29 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   Widget _field(TextEditingController c, {String? hint}) => TextField(
         controller: c,
+        style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
         decoration: InputDecoration(
           hintText: hint,
           isDense: true,
           contentPadding:
-              const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
         ),
       );
 
   Widget _pwField(TextEditingController c, {String? hint}) => TextField(
         controller: c,
         obscureText: _obscure,
+        style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
         decoration: InputDecoration(
           hintText: hint,
           isDense: true,
           contentPadding:
-              const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          suffixIconConstraints:
+              const BoxConstraints(minWidth: 36, minHeight: 0),
           suffixIcon: IconButton(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            constraints: const BoxConstraints(minWidth: 36, minHeight: 0),
             icon: Icon(
                 _obscure
                     ? Icons.visibility_off_outlined
