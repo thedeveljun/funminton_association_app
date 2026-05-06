@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_colors.dart';
 import '../../models/admin_records.dart';
 import '../../services/sample_data.dart';
+import 'notice_sms_sheet.dart';
 
 const _adminInk = Color(0xFF0D1B3E);
 
@@ -77,6 +78,18 @@ class _AdminScreenState extends State<AdminScreen>
     if (!await _confirmDelete(n.title)) return;
     setState(() => SampleData.notices.removeWhere((x) => x.id == n.id));
     await SampleData.saveNotices();
+  }
+
+  Future<void> _smsNotice(Notice n) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => NoticeSmsSheet(notice: n),
+    );
   }
 
   // ─── 이사회 CRUD ──────────────────────────
@@ -228,7 +241,11 @@ class _AdminScreenState extends State<AdminScreen>
       body: TabBarView(
         controller: _tc,
         children: [
-          _NoticeList(onTap: _editNotice, onDelete: _deleteNotice),
+          _NoticeList(
+            onTap: _editNotice,
+            onDelete: _deleteNotice,
+            onSms: _smsNotice,
+          ),
           _BoardList(onTap: _editBoard, onDelete: _deleteBoard),
           _DocumentList(onTap: _editDoc, onDelete: _deleteDoc),
         ],
@@ -243,7 +260,12 @@ class _AdminScreenState extends State<AdminScreen>
 class _NoticeList extends StatelessWidget {
   final ValueChanged<Notice> onTap;
   final ValueChanged<Notice> onDelete;
-  const _NoticeList({required this.onTap, required this.onDelete});
+  final ValueChanged<Notice> onSms;
+  const _NoticeList({
+    required this.onTap,
+    required this.onDelete,
+    required this.onSms,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -315,6 +337,16 @@ class _NoticeList extends StatelessWidget {
                               fontSize: 13, color: AppColors.gray3)),
                     ],
                   ),
+                ),
+                IconButton(
+                  tooltip: '클럽 회장·총무에게 SMS 발송',
+                  icon: const Icon(Icons.sms_rounded,
+                      color: AppColors.primaryMid, size: 20),
+                  onPressed: () => onSms(n),
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                      minWidth: 32, minHeight: 32),
                 ),
                 const Icon(Icons.chevron_right,
                     color: AppColors.gray3, size: 18),

@@ -67,7 +67,10 @@ class _FinanceScreenState extends State<FinanceScreen>
       barrierDismissible: false,
       builder: (_) => TransactionDialog(
         onSnack: _snack,
-        onSave: (tx) => setState(() => _transactions.add(tx)),
+        onSave: (tx) {
+          setState(() => _transactions.add(tx));
+          SampleData.saveTransactions();
+        },
       ),
     );
   }
@@ -79,12 +82,17 @@ class _FinanceScreenState extends State<FinanceScreen>
       builder: (_) => TransactionDialog(
         initial: tx,
         onSnack: _snack,
-        onSave: (updated) => setState(() {
-          final idx = _transactions.indexWhere((t) => t.id == tx.id);
-          if (idx >= 0) _transactions[idx] = updated;
-        }),
-        onDelete: () =>
-            setState(() => _transactions.removeWhere((t) => t.id == tx.id)),
+        onSave: (updated) {
+          setState(() {
+            final idx = _transactions.indexWhere((t) => t.id == tx.id);
+            if (idx >= 0) _transactions[idx] = updated;
+          });
+          SampleData.saveTransactions();
+        },
+        onDelete: () {
+          setState(() => _transactions.removeWhere((t) => t.id == tx.id));
+          SampleData.saveTransactions();
+        },
       ),
     );
   }
@@ -136,6 +144,8 @@ class _FinanceScreenState extends State<FinanceScreen>
           SampleData.playerFeePayments.add(payment);
           _transactions.add(tx);
           setState(() {});
+          SampleData.savePlayerFeePayments();
+          SampleData.saveTransactions();
         },
         onCancel: (player) {
           // 선수 납부 취소: 해당 선수의 올해 납부 + 연결 거래 삭제
@@ -151,6 +161,8 @@ class _FinanceScreenState extends State<FinanceScreen>
           SampleData.playerFeePayments
               .removeWhere((p) => p.playerId == player.id && p.year == yr);
           setState(() {});
+          SampleData.savePlayerFeePayments();
+          SampleData.saveTransactions();
         },
       ),
     );
@@ -184,6 +196,8 @@ class _FinanceScreenState extends State<FinanceScreen>
       switch (result.action) {
         case ClubShareFormAction.add:
           SampleData.clubShares.add(result.share);
+          // 위에서 add한 share를 아래에서 다시 copyWith로 교체할 수 있으므로
+          // 저장은 분기 끝(아래)에서 한번에 처리.
           // 납부 체크된 상태로 등록되면 거래도 같이 생성
           if (result.share.paid) {
             final txId = result.share.txId ??
@@ -247,6 +261,8 @@ class _FinanceScreenState extends State<FinanceScreen>
           break;
       }
     });
+    await SampleData.saveClubShares();
+    await SampleData.saveTransactions();
   }
 
   /// 분담금 → FinanceTransaction 변환
@@ -438,6 +454,10 @@ class _FinanceScreenState extends State<FinanceScreen>
           break;
       }
     });
+    await SampleData.saveTournaments();
+    await SampleData.saveClubShares();
+    await SampleData.saveDonations();
+    await SampleData.saveTransactions();
   }
 
   @override

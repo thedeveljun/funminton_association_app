@@ -289,6 +289,9 @@ class _TournamentListScreenState extends State<TournamentListScreen>
         donationTxIds.contains(tx.id));
 
     await SampleData.saveTournaments();
+    await SampleData.saveClubShares();
+    await SampleData.saveDonations();
+    await SampleData.saveTransactions();
     if (!mounted) return;
     setState(() {});
     ScaffoldMessenger.of(context).showSnackBar(

@@ -5,6 +5,10 @@ import '../models/player.dart';
 import '../models/tournament.dart';
 import '../models/scheduled_tournament.dart';
 import '../models/admin_records.dart';
+import '../models/player_fee_payment.dart';
+import '../models/finance_transaction.dart';
+import '../models/club_share.dart';
+import '../models/donation.dart';
 
 /// 앱 데이터(클럽/선수/대회)를 휴대폰 저장소에 영구 저장하고 불러오는 서비스
 class StorageService {
@@ -20,6 +24,10 @@ class StorageService {
   static const _kNotices = 'data_notices_v1';
   static const _kBoards = 'data_boards_v1';
   static const _kDocs = 'data_docs_v1';
+  static const _kPlayerFeePayments = 'data_player_fee_payments_v1';
+  static const _kTransactions = 'data_transactions_v1';
+  static const _kClubShares = 'data_club_shares_v1';
+  static const _kDonations = 'data_donations_v1';
 
   // ─── CLUBS ────────────────────────────────────
 
@@ -206,6 +214,99 @@ class StorageService {
     }
   }
 
+  // ─── PLAYER FEE PAYMENTS (선수별 협회비 납부) ────
+
+  static Future<void> savePlayerFeePayments(
+      List<PlayerFeePayment> list) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+        _kPlayerFeePayments, jsonEncode(list.map((e) => e.toMap()).toList()));
+  }
+
+  static Future<List<PlayerFeePayment>?> loadPlayerFeePayments() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_kPlayerFeePayments);
+    if (raw == null) return null;
+    try {
+      final List<dynamic> list = jsonDecode(raw);
+      return list
+          .map((e) => PlayerFeePayment.fromMap(Map<String, dynamic>.from(e)))
+          .toList();
+    } catch (e) {
+      print('⚠️ PlayerFeePayment 데이터 로드 실패: $e');
+      return null;
+    }
+  }
+
+  // ─── FINANCE TRANSACTIONS (재정 수입/지출 거래) ──
+
+  static Future<void> saveTransactions(List<FinanceTransaction> list) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+        _kTransactions, jsonEncode(list.map((e) => e.toMap()).toList()));
+  }
+
+  static Future<List<FinanceTransaction>?> loadTransactions() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_kTransactions);
+    if (raw == null) return null;
+    try {
+      final List<dynamic> list = jsonDecode(raw);
+      return list
+          .map((e) => FinanceTransaction.fromMap(Map<String, dynamic>.from(e)))
+          .toList();
+    } catch (e) {
+      print('⚠️ FinanceTransaction 데이터 로드 실패: $e');
+      return null;
+    }
+  }
+
+  // ─── CLUB SHARES (대회별 클럽 분담금) ─────────
+
+  static Future<void> saveClubShares(List<ClubShare> list) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+        _kClubShares, jsonEncode(list.map((e) => e.toMap()).toList()));
+  }
+
+  static Future<List<ClubShare>?> loadClubShares() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_kClubShares);
+    if (raw == null) return null;
+    try {
+      final List<dynamic> list = jsonDecode(raw);
+      return list
+          .map((e) => ClubShare.fromMap(Map<String, dynamic>.from(e)))
+          .toList();
+    } catch (e) {
+      print('⚠️ ClubShare 데이터 로드 실패: $e');
+      return null;
+    }
+  }
+
+  // ─── DONATIONS (대회별 찬조금/물품) ───────────
+
+  static Future<void> saveDonations(List<Donation> list) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+        _kDonations, jsonEncode(list.map((e) => e.toMap()).toList()));
+  }
+
+  static Future<List<Donation>?> loadDonations() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_kDonations);
+    if (raw == null) return null;
+    try {
+      final List<dynamic> list = jsonDecode(raw);
+      return list
+          .map((e) => Donation.fromMap(Map<String, dynamic>.from(e)))
+          .toList();
+    } catch (e) {
+      print('⚠️ Donation 데이터 로드 실패: $e');
+      return null;
+    }
+  }
+
   // ─── 전체 초기화 ──────────────────────────────
 
   static Future<void> clearAll() async {
@@ -219,5 +320,9 @@ class StorageService {
     await prefs.remove(_kNotices);
     await prefs.remove(_kBoards);
     await prefs.remove(_kDocs);
+    await prefs.remove(_kPlayerFeePayments);
+    await prefs.remove(_kTransactions);
+    await prefs.remove(_kClubShares);
+    await prefs.remove(_kDonations);
   }
 }

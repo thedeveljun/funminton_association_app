@@ -149,6 +149,8 @@ class _TournamentFinanceScreenState extends State<TournamentFinanceScreen>
       _snack('${share.clubName} 분담금을 납부 처리했습니다.');
     }
     _refresh();
+    await SampleData.saveClubShares();
+    await SampleData.saveTransactions();
   }
 
   // ── 찬조 수정/삭제 시트 ────────────────────
@@ -189,6 +191,8 @@ class _TournamentFinanceScreenState extends State<TournamentFinanceScreen>
         break;
     }
     _refresh();
+    await SampleData.saveDonations();
+    await SampleData.saveTransactions();
   }
 
   // ── FAB 액션 (현재 탭에 따라 다른 동작) ──────
@@ -255,6 +259,8 @@ class _TournamentFinanceScreenState extends State<TournamentFinanceScreen>
     });
     _snack('${result.share.clubName} 분담금이 등록되었습니다.');
     _refresh();
+    await SampleData.saveClubShares();
+    await SampleData.saveTransactions();
   }
 
   /// 분담금 → FinanceTransaction 변환
@@ -300,6 +306,7 @@ class _TournamentFinanceScreenState extends State<TournamentFinanceScreen>
     });
     _snack('${result.donation.donorName} 찬조가 등록되었습니다.');
     _refresh();
+    await SampleData.saveDonations();
   }
 
   // ── 거래 추가 ──────────────────────────────
@@ -330,6 +337,7 @@ class _TournamentFinanceScreenState extends State<TournamentFinanceScreen>
           });
           _snack('거래내역이 등록되었습니다.');
           _refresh();
+          SampleData.saveTransactions();
         },
       ),
     );

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:badminton_association/screens/players/player_list_screen.dart';
+import '../../models/player_fee_payment.dart';
 import '../../services/auth_service.dart';
 import '../../services/sample_data.dart';
 import '../clubs/club_list_screen.dart';
@@ -31,8 +32,10 @@ class _HomeScreenState extends State<HomeScreen> {
         );
   }
 
-  void _go(Widget s) =>
-      Navigator.push(context, MaterialPageRoute(builder: (_) => s));
+  Future<void> _go(Widget s) async {
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => s));
+    if (mounted) setState(() {}); // 돌아왔을 때 최근 활동 등 재계산
+  }
 
   Future<void> _confirmLogout() async {
     final ok = await showDialog<bool>(
@@ -57,74 +60,99 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFEFF2F7),
-      body: ListView(
-        padding: EdgeInsets.zero,
+      // 로그인→홈 전환 시 키보드가 남아있어도 본문이 압축되지 않도록
+      resizeToAvoidBottomInset: false,
+      body: Column(
         children: [
           // ▼ NEW: 통합 히어로 (배경이미지 + 헤더 + 헤드라인 + 통계카드)
           _heroWithStats(),
           const SizedBox(height: 16),
 
-          // ▼ 이하 메뉴 카드 / 최근 활동 (기존 그대로)
+          // ▼ 메뉴 카드 (3 × 2 그리드)
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Column(
               children: [
                 SizedBox(
-                  height: 116,
+                  height: 100,
                   child: Row(
                     children: [
                       Expanded(
                         child: _MenuCard(
                           icon: Icons.apartment_rounded,
                           title: '클럽관리',
-                          subtitle: '등록 · 임원 · 인원',
+                          subtitle: '등록, 조회',
                           iconColor: const Color(0xFF2563EB),
                           iconBgColor: const Color(0xFFDBEAFE),
                           subtitleColor: const Color(0xFF2563EB),
                           onTap: () => _go(const ClubListScreen()),
                         ),
                       ),
-                      const SizedBox(width: 10),
+                      const SizedBox(width: 6),
                       Expanded(
                         child: _MenuCard(
                           icon: Icons.groups_rounded,
                           title: '선수관리',
-                          subtitle: '등록 · 급수 · 이력',
+                          subtitle: '급수, 조회',
                           iconColor: const Color(0xFF22A06B),
                           iconBgColor: const Color(0xFFD1FAE5),
                           subtitleColor: const Color(0xFF22A06B),
                           onTap: () => _go(const PlayerListScreen()),
                         ),
                       ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 10),
-                SizedBox(
-                  height: 116,
-                  child: Row(
-                    children: [
+                      const SizedBox(width: 6),
                       Expanded(
                         child: _MenuCard(
                           icon: Icons.emoji_events_rounded,
                           title: '대회운영',
-                          subtitle: '생성 · 대진 · 결과',
+                          subtitle: '신청, 대진표',
                           iconColor: const Color(0xFFE07B3C),
                           iconBgColor: const Color(0xFFFFEDD8),
                           subtitleColor: const Color(0xFFE07B3C),
                           onTap: () => _go(const TournamentListScreen()),
                         ),
                       ),
-                      const SizedBox(width: 10),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 6),
+                SizedBox(
+                  height: 100,
+                  child: Row(
+                    children: [
                       Expanded(
                         child: _MenuCard(
                           icon: Icons.credit_card_rounded,
                           title: '재정관리',
-                          subtitle: '협회비 · 수입지출',
+                          subtitle: '협회 수입지출',
                           iconColor: const Color(0xFF7C3AED),
                           iconBgColor: const Color(0xFFEDE9FE),
                           subtitleColor: const Color(0xFF7C3AED),
                           onTap: () => _go(const FinanceScreen()),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: _MenuCard(
+                          icon: Icons.event_note_rounded,
+                          title: '대회일정',
+                          subtitle: '월별, 연간',
+                          iconColor: const Color(0xFF0891B2),
+                          iconBgColor: const Color(0xFFCFFAFE),
+                          subtitleColor: const Color(0xFF0891B2),
+                          onTap: () => _go(const TournamentScheduleScreen()),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: _MenuCard(
+                          icon: Icons.account_balance_rounded,
+                          title: '협회행정',
+                          subtitle: '공지 이사회',
+                          iconColor: const Color(0xFF1F2937),
+                          iconBgColor: const Color(0xFFE5E7EB),
+                          subtitleColor: const Color(0xFF3730A3),
+                          onTap: () => _go(const AdminScreen()),
                         ),
                       ),
                     ],
@@ -133,43 +161,12 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
           ),
-          const SizedBox(height: 10),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            child: SizedBox(
-              height: 116,
-              child: Row(
-                children: [
-                  Expanded(
-                    child: _MenuCard(
-                      icon: Icons.event_note_rounded,
-                      title: '대회일정',
-                      subtitle: '연간 · 월별 · 상태',
-                      iconColor: const Color(0xFF0891B2),
-                      iconBgColor: const Color(0xFFCFFAFE),
-                      subtitleColor: const Color(0xFF0891B2),
-                      onTap: () => _go(const TournamentScheduleScreen()),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _MenuCard(
-                      icon: Icons.account_balance_rounded,
-                      title: '협회행정',
-                      subtitle: '공지 · 이사회 · 공문',
-                      iconColor: const Color(0xFF1F2937),
-                      iconBgColor: const Color(0xFFE5E7EB),
-                      subtitleColor: const Color(0xFF3730A3),
-                      onTap: () => _go(const AdminScreen()),
-                    ),
-                  ),
-                ],
-              ),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(
+                  14, 16, 14, 20 + MediaQuery.of(context).padding.bottom),
+              child: _recent(),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 16, 14, 20),
-            child: _recent(),
           ),
         ],
       ),
@@ -412,6 +409,7 @@ class _HomeScreenState extends State<HomeScreen> {
   // 최근 활동 (기존 그대로)
   // ============================================================
   Widget _recent() {
+    final items = _buildRecentItems();
     return Material(
       color: Colors.white,
       borderRadius: BorderRadius.circular(20),
@@ -435,49 +433,142 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Text(
                 '최근 활동',
                 style: TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
                   color: Color(0xFF1A1A1A),
                   letterSpacing: -0.4,
                 ),
               ),
             ),
-            _act(
-              icon: Icons.emoji_events_rounded,
-              iconColor: const Color(0xFFE07B3C),
-              iconBg: const Color(0xFFFFEDD8),
-              title: '2026 협회장배 대회 진행 중',
-              sub: '참가 71명 · 65% 완료',
-              tag: '진행중',
-              tagBg: const Color(0xFFDDF5E8),
-              tagFg: const Color(0xFF22A06B),
-            ),
-            const Divider(height: 1, indent: 16, endIndent: 16),
-            _act(
-              icon: Icons.payments_rounded,
-              iconColor: const Color(0xFF22A06B),
-              iconBg: const Color(0xFFDDF5E8),
-              title: '중앙클럽 협회비 납부',
-              sub: '2026-04-19 · 300,000원',
-              trail: '+300,000원',
-              trailColor: const Color(0xFF22A06B),
-            ),
-            const Divider(height: 1, indent: 16, endIndent: 16),
-            _act(
-              icon: Icons.person_add_alt_1_rounded,
-              iconColor: const Color(0xFF2563EB),
-              iconBg: const Color(0xFFDCEBFF),
-              title: '신규 선수 등록 3명',
-              sub: '서초 셔틀콕 클럽',
-              tag: '신규',
-              tagBg: const Color(0xFFDCEBFF),
-              tagFg: const Color(0xFF2563EB),
-            ),
+            if (items.isEmpty)
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 12, 16, 18),
+                child: Text(
+                  '최근 활동 내역이 없습니다.',
+                  style: TextStyle(fontSize: 13, color: Color(0xFF888888)),
+                ),
+              )
+            else
+              for (var i = 0; i < items.length; i++) ...[
+                if (i > 0) const Divider(height: 1, indent: 16, endIndent: 16),
+                _act(
+                  icon: items[i].icon,
+                  iconColor: items[i].iconColor,
+                  iconBg: items[i].iconBg,
+                  title: items[i].title,
+                  sub: items[i].sub,
+                  tag: items[i].tag,
+                  tagBg: items[i].tagBg,
+                  tagFg: items[i].tagFg,
+                  trail: items[i].trail,
+                  trailColor: items[i].trailColor,
+                ),
+              ],
             const SizedBox(height: 4),
           ],
         ),
       ),
     );
+  }
+
+  /// 최근 활동 항목 빌더 — SampleData에서 실시간 집계 (날짜 내림차순, 최대 10건)
+  List<_RecentItem> _buildRecentItems() {
+    final items = <_RecentItem>[];
+
+    // 1) 진행중 대회 (모두)
+    final ongoing = SampleData.tournaments
+        .where((t) => t.status == 'ongoing')
+        .toList()
+      ..sort((a, b) => b.startDate.compareTo(a.startDate));
+    for (final t in ongoing) {
+      items.add(_RecentItem(
+        sortKey: DateTime.tryParse(t.startDate) ?? DateTime(2000),
+        icon: Icons.emoji_events_rounded,
+        iconColor: const Color(0xFFE07B3C),
+        iconBg: const Color(0xFFFFEDD8),
+        title: '${t.name} 진행 중',
+        sub: '${t.startDate} ~ ${t.endDate}',
+        tag: '진행중',
+        tagBg: const Color(0xFFDDF5E8),
+        tagFg: const Color(0xFF22A06B),
+      ));
+    }
+
+    // 2) 협회비 납부 — 클럽+날짜로 묶어 최근 5건
+    //    재정관리 항목이므로 정렬키는 그룹 내 가장 최근에 실행(생성)된
+    //    납부의 ID 타임스탬프(마이크로초)로 잡아 "최근 실행순"이 되도록 한다.
+    final byClubDate = <String, List<PlayerFeePayment>>{};
+    for (final p in SampleData.playerFeePayments) {
+      byClubDate.putIfAbsent('${p.clubName}|${p.date}', () => []).add(p);
+    }
+    final grouped = byClubDate.values.map((list) {
+      final total = list.fold<int>(0, (s, p) => s + p.amount);
+      final clubName = list.first.clubName;
+      final date = list.first.date;
+      DateTime latest = DateTime.tryParse(date) ?? DateTime(2000);
+      for (final p in list) {
+        final m = RegExp(r'(\d{13,})').firstMatch(p.id);
+        if (m == null) continue;
+        final raw = m.group(1)!;
+        final n = int.tryParse(raw);
+        if (n == null) continue;
+        final dt = raw.length >= 16
+            ? DateTime.fromMicrosecondsSinceEpoch(n)
+            : DateTime.fromMillisecondsSinceEpoch(n);
+        if (dt.isAfter(latest)) latest = dt;
+      }
+      return _RecentItem(
+        sortKey: latest,
+        icon: Icons.payments_rounded,
+        iconColor: const Color(0xFF22A06B),
+        iconBg: const Color(0xFFDDF5E8),
+        title: '$clubName 협회비 납부',
+        sub: '$date · ${list.length}명',
+        trail: '+${_formatNumber(total)}원',
+        trailColor: const Color(0xFF22A06B),
+      );
+    }).toList()
+      ..sort((a, b) => b.sortKey.compareTo(a.sortKey));
+    items.addAll(grouped.take(5));
+
+    // 3) 최근 공지 3건
+    final recentNotices = [...SampleData.notices]
+      ..sort((a, b) => b.date.compareTo(a.date));
+    for (final n in recentNotices.take(3)) {
+      final isImportant = n.type == '중요';
+      items.add(_RecentItem(
+        sortKey: DateTime.tryParse(n.date) ?? DateTime(2000),
+        icon: Icons.campaign_rounded,
+        iconColor: const Color(0xFF7C3AED),
+        iconBg: const Color(0xFFEDE9FE),
+        title: '공지: ${n.title}',
+        sub: n.date,
+        tag: isImportant ? '중요' : null,
+        tagBg: isImportant ? const Color(0xFFFEE2E2) : null,
+        tagFg: isImportant ? const Color(0xFFB91C1C) : null,
+      ));
+    }
+
+    // 4) 가장 최근 이사회 2건
+    final boards = [...SampleData.boards]
+      ..sort((a, b) => b.date.compareTo(a.date));
+    for (final b in boards.take(2)) {
+      final isDone = b.status == '완료';
+      items.add(_RecentItem(
+        sortKey: DateTime.tryParse(b.date) ?? DateTime(2000),
+        icon: Icons.groups_rounded,
+        iconColor: const Color(0xFF2563EB),
+        iconBg: const Color(0xFFDCEBFF),
+        title: '이사회: ${b.title}',
+        sub: '${b.date}${b.place.isEmpty ? '' : ' · ${b.place}'}',
+        tag: b.status,
+        tagBg: isDone ? const Color(0xFFE5E7EB) : const Color(0xFFDCEBFF),
+        tagFg: isDone ? const Color(0xFF555555) : const Color(0xFF2563EB),
+      ));
+    }
+
+    items.sort((a, b) => b.sortKey.compareTo(a.sortKey));
+    return items.take(10).toList();
   }
 
   Widget _act({
@@ -493,19 +584,19 @@ class _HomeScreenState extends State<HomeScreen> {
     Color? trailColor,
   }) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
       child: Row(
         children: [
           Container(
-            width: 40,
-            height: 40,
+            width: 24,
+            height: 24,
             decoration: BoxDecoration(
               color: iconBg,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(7),
             ),
-            child: Icon(icon, size: 20, color: iconColor),
+            child: Icon(icon, size: 16, color: iconColor),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -590,70 +681,88 @@ class _MenuCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(18),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(18),
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(
-              color: const Color(0xFFC7D5F0),
-              width: 1.8,
-            ),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x08000000),
-                blurRadius: 6,
-                offset: Offset(0, 2),
-              ),
-            ],
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(14),
+      child: Ink(
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Colors.white, Color(0xFFDEE5EE)],
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: iconBgColor,
-                  borderRadius: BorderRadius.circular(11),
+          borderRadius: BorderRadius.circular(14),
+          boxShadow: const [
+            // 위쪽 라이트 하이라이트
+            BoxShadow(
+              color: Color(0xFFFFFFFF),
+              offset: Offset(0, -1),
+              blurRadius: 0,
+              spreadRadius: 0,
+            ),
+            // 메인 그림자 (깊은 깊이감)
+            BoxShadow(
+              color: Color(0x29000000),
+              offset: Offset(0, 8),
+              blurRadius: 18,
+              spreadRadius: -3,
+            ),
+            // 타이트 컨택 그림자
+            BoxShadow(
+              color: Color(0x1A000000),
+              offset: Offset(0, 3),
+              blurRadius: 6,
+              spreadRadius: 0,
+            ),
+          ],
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 30,
+                  height: 30,
+                  decoration: BoxDecoration(
+                    color: iconBgColor,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(icon, size: 16, color: iconColor),
                 ),
-                child: Icon(icon, size: 20, color: iconColor),
-              ),
-              const SizedBox(height: 6),
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  title,
-                  maxLines: 1,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w500,
-                    color: Color(0xFF1A1A1A),
-                    height: 1.1,
-                    letterSpacing: -0.4,
+                const SizedBox(height: 7),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    title,
+                    maxLines: 1,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF1A1A1A),
+                      height: 1.1,
+                      letterSpacing: -0.3,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                subtitle,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                  color: subtitleColor,
-                  height: 1.25,
-                  letterSpacing: -0.2,
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w600,
+                    color: subtitleColor,
+                    height: 1.2,
+                    letterSpacing: -0.2,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -731,4 +840,35 @@ class _StatItem extends StatelessWidget {
       ],
     );
   }
+}
+
+// ============================================================
+// 최근 활동 항목 데이터 (실데이터 집계용 PoD)
+// ============================================================
+class _RecentItem {
+  final DateTime sortKey;
+  final IconData icon;
+  final Color iconColor;
+  final Color iconBg;
+  final String title;
+  final String sub;
+  final String? tag;
+  final Color? tagBg;
+  final Color? tagFg;
+  final String? trail;
+  final Color? trailColor;
+
+  const _RecentItem({
+    required this.sortKey,
+    required this.icon,
+    required this.iconColor,
+    required this.iconBg,
+    required this.title,
+    required this.sub,
+    this.tag,
+    this.tagBg,
+    this.tagFg,
+    this.trail,
+    this.trailColor,
+  });
 }

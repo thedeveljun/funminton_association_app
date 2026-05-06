@@ -393,9 +393,23 @@ class _GradeFilterBar extends StatelessWidget {
                 color: Colors.transparent,
                 child: child,
               ),
-              itemCount: allGrades.length,
-              onReorder: (oldIdx, newIdx) => onReorderGrade(oldIdx, newIdx),
+              itemCount: allGrades.length + 1, // 마지막은 +추가 칩
+              onReorder: (oldIdx, newIdx) {
+                // +추가 칩(마지막 인덱스)은 드래그 불가지만 안전 가드
+                if (oldIdx >= allGrades.length) return;
+                if (newIdx > allGrades.length) newIdx = allGrades.length;
+                onReorderGrade(oldIdx, newIdx);
+              },
               itemBuilder: (ctx, i) {
+                if (i == allGrades.length) {
+                  // 스크롤 영역 마지막에 위치 → 칩이 많으면 가려지고, 끝까지 스크롤 시 노출
+                  return Padding(
+                    key: const ValueKey('__add_grade_chip__'),
+                    padding: const EdgeInsets.only(right: 7),
+                    child: _AddGradeChip(
+                        onTap: () => _showManageDialog(context)),
+                  );
+                }
                 final g = allGrades[i];
                 final on = activeGrades.contains(g);
                 return Padding(
@@ -439,7 +453,6 @@ class _GradeFilterBar extends StatelessWidget {
               },
             ),
           ),
-          _AddGradeChip(onTap: () => _showManageDialog(context)),
         ]),
       ),
     );

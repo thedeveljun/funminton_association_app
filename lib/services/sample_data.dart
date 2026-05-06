@@ -471,66 +471,84 @@ class SampleData {
     ),
   ];
 
-  static Future<void> loadFromStorage() async {
-    final savedClubs = await StorageService.loadClubs();
-    if (savedClubs != null && savedClubs.isNotEmpty) {
-      clubs.clear();
-      clubs.addAll(savedClubs);
-      print('✅ 저장된 클럽 ${savedClubs.length}개 로드됨');
-    }
+  /// 영구 저장 대상 판별 — id에 '_'가 포함된 데이터만 사용자 입력으로 간주.
+  /// 샘플 데이터 id 컨벤션은 모두 '_' 없는 짧은 형태(예: c1, t1, s1, d1, n1, pfp1, f1)이고,
+  /// 사용자 입력으로 생성되는 id는 모두 '_' 포함(예: club_<ms>, t_<ms>, cs_<μs>, don_<μs>, pfp_<μs>, tx_<...>).
+  static bool _isUserId(String id) => id.contains('_');
 
-    final savedPlayers = await StorageService.loadPlayers();
-    if (savedPlayers != null && savedPlayers.isNotEmpty) {
-      players.clear();
-      players.addAll(savedPlayers);
-      print('✅ 저장된 선수 ${savedPlayers.length}명 로드됨');
-    }
-
-    final savedTournaments = await StorageService.loadTournaments();
-    if (savedTournaments != null && savedTournaments.isNotEmpty) {
-      tournaments.clear();
-      tournaments.addAll(savedTournaments);
-      print('✅ 저장된 대회 ${savedTournaments.length}개 로드됨');
-    }
-
-    final savedScheduled = await StorageService.loadScheduledTournaments();
-    if (savedScheduled != null) {
-      scheduledTournaments.clear();
-      scheduledTournaments.addAll(savedScheduled);
-      print('✅ 저장된 외부 대회 일정 ${savedScheduled.length}개 로드됨');
-    }
-
-    final savedNotices = await StorageService.loadNotices();
-    if (savedNotices != null) {
-      notices.clear();
-      notices.addAll(savedNotices);
-      print('✅ 저장된 공지사항 ${savedNotices.length}건 로드됨');
-    }
-
-    final savedBoards = await StorageService.loadBoards();
-    if (savedBoards != null) {
-      boards.clear();
-      boards.addAll(savedBoards);
-      print('✅ 저장된 이사회 ${savedBoards.length}건 로드됨');
-    }
-
-    final savedDocs = await StorageService.loadDocs();
-    if (savedDocs != null) {
-      docs.clear();
-      docs.addAll(savedDocs);
-      print('✅ 저장된 공문 ${savedDocs.length}건 로드됨');
+  /// 로드된 데이터 중 사용자 데이터만 in-memory 리스트에 머지.
+  /// (기존에 들어있던 사용자 데이터는 제거 후 재삽입 — 중복 방지)
+  static void _mergeUser<T>(
+    List<T> dest,
+    List<T>? loaded,
+    String Function(T) idOf,
+    String label,
+  ) {
+    if (loaded == null) return;
+    dest.removeWhere((e) => _isUserId(idOf(e)));
+    final userOnly = loaded.where((e) => _isUserId(idOf(e))).toList();
+    dest.addAll(userOnly);
+    if (userOnly.isNotEmpty) {
+      print('✅ 저장된 사용자 $label ${userOnly.length}건 로드됨');
     }
   }
 
-  static Future<void> saveClubs() => StorageService.saveClubs(clubs);
-  static Future<void> savePlayers() => StorageService.savePlayers(players);
-  static Future<void> saveTournaments() =>
-      StorageService.saveTournaments(tournaments);
+  static Future<void> loadFromStorage() async {
+    _mergeUser<Club>(
+        clubs, await StorageService.loadClubs(), (c) => c.id, '클럽');
+    _mergeUser<Player>(
+        players, await StorageService.loadPlayers(), (p) => p.id, '선수');
+    _mergeUser<Tournament>(tournaments, await StorageService.loadTournaments(),
+        (t) => t.id, '대회');
+    _mergeUser<ScheduledTournament>(
+        scheduledTournaments,
+        await StorageService.loadScheduledTournaments(),
+        (s) => s.id,
+        '외부 대회 일정');
+    _mergeUser<Notice>(
+        notices, await StorageService.loadNotices(), (n) => n.id, '공지사항');
+    _mergeUser<BoardMeeting>(
+        boards, await StorageService.loadBoards(), (b) => b.id, '이사회');
+    _mergeUser<OfficialDoc>(
+        docs, await StorageService.loadDocs(), (d) => d.id, '공문');
+    _mergeUser<PlayerFeePayment>(
+        playerFeePayments,
+        await StorageService.loadPlayerFeePayments(),
+        (p) => p.id,
+        '협회비 납부');
+    _mergeUser<FinanceTransaction>(transactions,
+        await StorageService.loadTransactions(), (t) => t.id, '거래');
+    _mergeUser<ClubShare>(clubShares, await StorageService.loadClubShares(),
+        (s) => s.id, '분담금');
+    _mergeUser<Donation>(donations, await StorageService.loadDonations(),
+        (d) => d.id, '찬조');
+  }
+
+  /// 사용자가 입력한(`_` 포함 id) 데이터만 저장. 샘플은 한시적이며 영구 저장하지 않는다.
+  static Future<void> saveClubs() => StorageService.saveClubs(
+      clubs.where((c) => _isUserId(c.id)).toList());
+  static Future<void> savePlayers() => StorageService.savePlayers(
+      players.where((p) => _isUserId(p.id)).toList());
+  static Future<void> saveTournaments() => StorageService.saveTournaments(
+      tournaments.where((t) => _isUserId(t.id)).toList());
   static Future<void> saveScheduledTournaments() =>
-      StorageService.saveScheduledTournaments(scheduledTournaments);
-  static Future<void> saveNotices() => StorageService.saveNotices(notices);
-  static Future<void> saveBoards() => StorageService.saveBoards(boards);
-  static Future<void> saveDocs() => StorageService.saveDocs(docs);
+      StorageService.saveScheduledTournaments(
+          scheduledTournaments.where((s) => _isUserId(s.id)).toList());
+  static Future<void> saveNotices() => StorageService.saveNotices(
+      notices.where((n) => _isUserId(n.id)).toList());
+  static Future<void> saveBoards() => StorageService.saveBoards(
+      boards.where((b) => _isUserId(b.id)).toList());
+  static Future<void> saveDocs() => StorageService.saveDocs(
+      docs.where((d) => _isUserId(d.id)).toList());
+  static Future<void> savePlayerFeePayments() =>
+      StorageService.savePlayerFeePayments(
+          playerFeePayments.where((p) => _isUserId(p.id)).toList());
+  static Future<void> saveTransactions() => StorageService.saveTransactions(
+      transactions.where((t) => _isUserId(t.id)).toList());
+  static Future<void> saveClubShares() => StorageService.saveClubShares(
+      clubShares.where((s) => _isUserId(s.id)).toList());
+  static Future<void> saveDonations() => StorageService.saveDonations(
+      donations.where((d) => _isUserId(d.id)).toList());
 
   // ── 협회 행정 — 공지사항 ─────────────────────
   static final List<Notice> notices = [

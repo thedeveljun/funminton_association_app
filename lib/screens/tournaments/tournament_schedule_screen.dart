@@ -63,17 +63,6 @@ class _TournamentScheduleScreenState extends State<TournamentScheduleScreen> {
     await _persist();
   }
 
-  Future<void> _toggleAttend(ScheduledTournament t) async {
-    final idx =
-        SampleData.scheduledTournaments.indexWhere((s) => s.id == t.id);
-    if (idx < 0) return;
-    setState(() {
-      SampleData.scheduledTournaments[idx] =
-          t.copyWith(attending: !t.attending);
-    });
-    await _persist();
-  }
-
   Future<ScheduledTournament?> _showFormSheet(
       {ScheduledTournament? initial}) async {
     return showModalBottomSheet<ScheduledTournament>(
@@ -169,7 +158,6 @@ class _TournamentScheduleScreenState extends State<TournamentScheduleScreen> {
                       month: m,
                       tournaments: byYearMonth[y]![m]!,
                       onTap: _edit,
-                      onToggleAttend: _toggleAttend,
                       onDelete: _delete,
                     ),
                   const SizedBox(height: 6),
@@ -226,14 +214,12 @@ class _MonthBlock extends StatelessWidget {
   final String month;
   final List<ScheduledTournament> tournaments;
   final ValueChanged<ScheduledTournament> onTap;
-  final ValueChanged<ScheduledTournament> onToggleAttend;
   final ValueChanged<ScheduledTournament> onDelete;
 
   const _MonthBlock({
     required this.month,
     required this.tournaments,
     required this.onTap,
-    required this.onToggleAttend,
     required this.onDelete,
   });
 
@@ -272,6 +258,11 @@ class _MonthBlock extends StatelessWidget {
         Container(
           padding: const EdgeInsets.fromLTRB(12, 5, 12, 4),
           decoration: BoxDecoration(
+            color: border.withOpacity(0.85),
+            borderRadius: const BorderRadius.only(
+              topLeft: Radius.circular(9.5),
+              topRight: Radius.circular(9.5),
+            ),
             border: Border(
               bottom: BorderSide(color: border, width: 1.5),
             ),
@@ -293,7 +284,6 @@ class _MonthBlock extends StatelessWidget {
         ...tournaments.map((t) => _ScheduleRow(
               tournament: t,
               onTap: () => onTap(t),
-              onToggleAttend: () => onToggleAttend(t),
               onDelete: () => onDelete(t),
             )),
       ]),
@@ -304,13 +294,11 @@ class _MonthBlock extends StatelessWidget {
 class _ScheduleRow extends StatelessWidget {
   final ScheduledTournament tournament;
   final VoidCallback onTap;
-  final VoidCallback onToggleAttend;
   final VoidCallback onDelete;
 
   const _ScheduleRow({
     required this.tournament,
     required this.onTap,
-    required this.onToggleAttend,
     required this.onDelete,
   });
 
@@ -360,10 +348,7 @@ class _ScheduleRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          GestureDetector(
-            onTap: onToggleAttend,
-            child: _AttendPill(attending: t.attending),
-          ),
+          _AttendPill(attending: t.attending),
         ]),
       ),
     );
@@ -597,18 +582,11 @@ class _ScheduleFormState extends State<_ScheduleForm> {
               ),
             ]),
             const SizedBox(height: 10),
+            _label('참가 여부'),
             Row(children: [
-              const Text('참가 예정',
-                  style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.text2)),
-              const Spacer(),
-              Switch.adaptive(
-                value: _attending,
-                activeColor: AppColors.primaryMid,
-                onChanged: (v) => setState(() => _attending = v),
-              ),
+              Expanded(child: _attendChoice(true, '경기예정')),
+              const SizedBox(width: 8),
+              Expanded(child: _attendChoice(false, '미정')),
             ]),
             const SizedBox(height: 4),
             _label('메모'),
@@ -668,6 +646,37 @@ class _ScheduleFormState extends State<_ScheduleForm> {
               const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         ),
       );
+
+  Widget _attendChoice(bool value, String label) {
+    final selected = _attending == value;
+    final bg = selected
+        ? (value ? const Color(0xFFDDF5E8) : const Color(0xFFE2E8F0))
+        : Colors.white;
+    final fg = selected
+        ? (value ? const Color(0xFF16794D) : const Color(0xFF475569))
+        : const Color(0xFFAAAAAA);
+    final borderColor = selected
+        ? (value ? const Color(0xFF16794D) : const Color(0xFF475569))
+        : const Color(0xFFD8DEE8);
+    return GestureDetector(
+      onTap: () => setState(() => _attending = value),
+      child: Container(
+        height: 40,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+              color: borderColor, width: selected ? 1.5 : 1),
+        ),
+        child: Text(label,
+            style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: fg)),
+      ),
+    );
+  }
 
   Widget _dateBtn(String value, VoidCallback onTap) => GestureDetector(
         onTap: onTap,
