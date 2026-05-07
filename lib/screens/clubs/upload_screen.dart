@@ -17,6 +17,27 @@ const _subtitle = Color(0xFF4B5563);
 const _green = Color(0xFF22A06B);
 const _red = Color(0xFFB91C1C);
 const _soft = Color(0xFFF4F6FA);
+const _warnBg = Color(0xFFFEF3C7);
+const _warnBorder = Color(0xFFFCD34D);
+const _warnIcon = Color(0xFFB45309);
+const _warnText = Color(0xFF92400E);
+
+/// 급수 라벨 정규화.
+/// 사용자가 "A", "A급", "초심" 등으로 입력해도 "A조", "초심조" 로 자동 변환.
+/// 매칭 실패시 trim 한 원본 반환.
+String _normalizeGrade(String raw) {
+  final s = raw.trim();
+  if (s.isEmpty) return '';
+  final upper = s.toUpperCase().replaceAll(' ', '');
+  // 영문 한 글자 단독 또는 'X조'/'X급' 패턴 (A/B/C/D/S/E 등 모두 포괄)
+  final letterMatch = RegExp(r'^([A-Z])(조|급)?$').firstMatch(upper);
+  if (letterMatch != null) return '${letterMatch.group(1)}조';
+  if (s == '초심' || s == '초심조' || s == '초심자' || s == '입문' || s == '입문조') {
+    return '초심조';
+  }
+  if (s == '자강' || s == '자강조') return '자강조';
+  return s;
+}
 
 enum UploadType { club, player }
 
@@ -31,6 +52,7 @@ class UploadScreen extends StatefulWidget {
 class _UploadScreenState extends State<UploadScreen> {
   bool _isLoading = false;
   String? _errorMsg;
+  String? _warningMsg;
   List<Map<String, String>> _preview = [];
   String? _fileName;
   String? _savedPath;
@@ -162,6 +184,7 @@ class _UploadScreenState extends State<UploadScreen> {
   Future<void> _pickFile() async {
     setState(() {
       _errorMsg = null;
+      _warningMsg = null;
       _preview = [];
       _fileName = null;
       _uploaded = false;
@@ -284,8 +307,10 @@ class _UploadScreenState extends State<UploadScreen> {
         return;
       }
 
-      // ── 필수 항목 검증 (유연한 키 매칭) ──
+      // ── 검증: errors(차단) / warnings(허용) 분리 ──
       final errors = <String>[];
+      final unregClubs = <String>{};
+      int normalizedCount = 0;
       for (var i = 0; i < rows.length; i++) {
         final row = rows[i];
         if (widget.type == UploadType.club) {
@@ -298,15 +323,10 @@ class _UploadScreenState extends State<UploadScreen> {
         } else {
           final clubName = _getValue(row, ['클럽명', '소속클럽명', '소속 클럽명']);
           final gender = _getValue(row, ['성별']);
-          final grade = _getValue(row, ['급수']);
+          final gradeRaw = _getValue(row, ['급수']);
+          final grade = _normalizeGrade(gradeRaw);
           final birthDate = _getValue(row, ['생년월일']);
 
-          if (clubName.isEmpty) {
-            errors.add('${i + 1}번째 데이터: 클럽명 필수');
-          } else if (!SampleData.clubs.any((c) => c.name == clubName)) {
-            errors.add(
-                "${i + 1}번째: 클럽 '$clubName' 미등록 — 먼저 클럽관리에서 등록 필요");
-          }
           if (_getValue(row, ['이름']).isEmpty) {
             errors.add('${i + 1}번째 데이터: 이름 필수');
           }
@@ -315,11 +335,8 @@ class _UploadScreenState extends State<UploadScreen> {
           } else if (gender != '남' && gender != '여') {
             errors.add("${i + 1}번째: 성별은 '남' 또는 '여' 만 가능");
           }
-          if (grade.isEmpty) {
+          if (gradeRaw.isEmpty) {
             errors.add('${i + 1}번째 데이터: 급수 필수');
-          } else if (!const ['A조', 'B조', 'C조', 'D조', '초심조']
-              .contains(grade)) {
-            errors.add('${i + 1}번째: 급수는 A조/B조/C조/D조/초심조 중 하나');
           }
           if (birthDate.isNotEmpty) {
             final digits = birthDate.replaceAll(RegExp(r'\D'), '');
@@ -327,6 +344,16 @@ class _UploadScreenState extends State<UploadScreen> {
               errors.add(
                   '${i + 1}번째: 생년월일은 6자리(예 850315) 또는 8자리(예 19850315)');
             }
+          }
+
+          // 경고: 클럽 미등록 (등록은 진행)
+          if (clubName.isNotEmpty &&
+              !SampleData.clubs.any((c) => c.name == clubName)) {
+            unregClubs.add(clubName);
+          }
+          // 경고: 급수 자동 정규화
+          if (gradeRaw.isNotEmpty && grade != gradeRaw) {
+            normalizedCount++;
           }
         }
       }
@@ -340,8 +367,21 @@ class _UploadScreenState extends State<UploadScreen> {
         return;
       }
 
+      final warnings = <String>[];
+      if (unregClubs.isNotEmpty) {
+        final shown = unregClubs.take(3).join(', ');
+        final extra =
+            unregClubs.length > 3 ? ' 외 ${unregClubs.length - 3}곳' : '';
+        warnings.add(
+            "미등록 클럽 ${unregClubs.length}곳 ($shown$extra) — 클럽 ID 없이 저장됩니다");
+      }
+      if (normalizedCount > 0) {
+        warnings.add('급수 자동 정규화 $normalizedCount건 (예: A → A조)');
+      }
+
       setState(() {
         _preview = rows;
+        _warningMsg = warnings.isEmpty ? null : warnings.join('\n');
         _isLoading = false;
       });
     } catch (e) {
@@ -358,6 +398,7 @@ class _UploadScreenState extends State<UploadScreen> {
 
     int added = 0;
     int skipped = 0;
+    int clubMismatch = 0;
 
     if (widget.type == UploadType.club) {
       for (final row in _preview) {
@@ -396,12 +437,17 @@ class _UploadScreenState extends State<UploadScreen> {
 
         final club =
             SampleData.clubs.where((c) => c.name == clubName).firstOrNull;
+        if (club == null && clubName.isNotEmpty) clubMismatch++;
+
+        final gradeRaw = _getValue(row, ['급수']);
+        final normalizedGrade =
+            _normalizeGrade(gradeRaw.isEmpty ? 'C조' : gradeRaw);
 
         final player = Player(
           id: 'player_${DateTime.now().millisecondsSinceEpoch}_$added',
           name: name,
           gender: _getValue(row, ['성별']).isEmpty ? '남' : _getValue(row, ['성별']),
-          grade: _getValue(row, ['급수']).isEmpty ? 'C조' : _getValue(row, ['급수']),
+          grade: normalizedGrade.isEmpty ? 'C조' : normalizedGrade,
           clubId: club?.id ?? '',
           clubName: clubName,
           phone: _getValue(row, ['전화번호', '연락처']),
@@ -417,6 +463,15 @@ class _UploadScreenState extends State<UploadScreen> {
 
     setState(() => _uploaded = true);
 
+    final lines = <String>['$added건 등록되었습니다.'];
+    if (clubMismatch > 0) {
+      lines.add(
+          '클럽 미매칭 $clubMismatch건은 클럽 ID 없이 저장됨\n→ 클럽 등록 후 수동 연결 필요');
+    }
+    if (skipped > 0) {
+      lines.add('(중복 $skipped건 건너뜀)');
+    }
+
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -428,7 +483,7 @@ class _UploadScreenState extends State<UploadScreen> {
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
         ]),
         content: Text(
-          '${added}건 등록되었습니다.${skipped > 0 ? '\n(중복 ${skipped}건 건너뜀)' : ''}',
+          lines.join('\n'),
           style: const TextStyle(fontSize: 14),
         ),
         actions: [
@@ -654,6 +709,30 @@ class _UploadScreenState extends State<UploadScreen> {
                                   child: Text(_errorMsg!,
                                       style: const TextStyle(
                                           fontSize: 12, color: _red)),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                        if (_warningMsg != null) ...[
+                          const SizedBox(height: 8),
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: _warnBg,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: _warnBorder),
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Icon(Icons.warning_amber_rounded,
+                                    size: 16, color: _warnIcon),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(_warningMsg!,
+                                      style: const TextStyle(
+                                          fontSize: 12, color: _warnText)),
                                 ),
                               ],
                             ),
