@@ -296,17 +296,37 @@ class _UploadScreenState extends State<UploadScreen> {
             errors.add('${i + 1}번째 데이터: 회장 이름 필수');
           }
         } else {
+          final clubName = _getValue(row, ['클럽명', '소속클럽명', '소속 클럽명']);
+          final gender = _getValue(row, ['성별']);
+          final grade = _getValue(row, ['급수']);
+          final birthDate = _getValue(row, ['생년월일']);
+
+          if (clubName.isEmpty) {
+            errors.add('${i + 1}번째 데이터: 클럽명 필수');
+          } else if (!SampleData.clubs.any((c) => c.name == clubName)) {
+            errors.add(
+                "${i + 1}번째: 클럽 '$clubName' 미등록 — 먼저 클럽관리에서 등록 필요");
+          }
           if (_getValue(row, ['이름']).isEmpty) {
             errors.add('${i + 1}번째 데이터: 이름 필수');
           }
-          if (_getValue(row, ['성별']).isEmpty) {
+          if (gender.isEmpty) {
             errors.add('${i + 1}번째 데이터: 성별 필수');
+          } else if (gender != '남' && gender != '여') {
+            errors.add("${i + 1}번째: 성별은 '남' 또는 '여' 만 가능");
           }
-          if (_getValue(row, ['급수']).isEmpty) {
+          if (grade.isEmpty) {
             errors.add('${i + 1}번째 데이터: 급수 필수');
+          } else if (!const ['A조', 'B조', 'C조', 'D조', '초심조']
+              .contains(grade)) {
+            errors.add('${i + 1}번째: 급수는 A조/B조/C조/D조/초심조 중 하나');
           }
-          if (_getValue(row, ['소속클럽명', '소속 클럽명', '클럽명']).isEmpty) {
-            errors.add('${i + 1}번째 데이터: 소속 클럽명 필수');
+          if (birthDate.isNotEmpty) {
+            final digits = birthDate.replaceAll(RegExp(r'\D'), '');
+            if (digits.length != 6 && digits.length != 8) {
+              errors.add(
+                  '${i + 1}번째: 생년월일은 6자리(예 850315) 또는 8자리(예 19850315)');
+            }
           }
         }
       }
@@ -363,7 +383,7 @@ class _UploadScreenState extends State<UploadScreen> {
     } else {
       for (final row in _preview) {
         final name = _getValue(row, ['이름']);
-        final clubName = _getValue(row, ['소속클럽명', '소속 클럽명', '클럽명']);
+        final clubName = _getValue(row, ['클럽명', '소속클럽명', '소속 클럽명']);
         final exists = SampleData.players
             .any((p) => p.name == name && p.clubName == clubName);
         if (exists) {
@@ -371,12 +391,8 @@ class _UploadScreenState extends State<UploadScreen> {
           continue;
         }
 
-        int age = 0;
         final bd = _getValue(row, ['생년월일']);
-        if (bd.length >= 4) {
-          final year = int.tryParse(bd.substring(0, 4)) ?? 0;
-          if (year > 0) age = DateTime.now().year - year;
-        }
+        final age = Player.calcAgeFromBirthDate(bd);
 
         final club =
             SampleData.clubs.where((c) => c.name == clubName).firstOrNull;

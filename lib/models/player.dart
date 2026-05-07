@@ -88,4 +88,27 @@ class Player {
         age: m['age'] ?? 0,
         awards: (m['awards'] as List?)?.cast<String>() ?? const [],
       );
+
+  /// 생년월일 문자열 → 만 나이.
+  /// 허용 포맷: "850315", "19850315", "1985-03-15", "85.03.15", "850315-1234567"
+  /// YY <= 현재연도 두자리 → 2000년대, 그 외 → 1900년대.
+  /// 잘못된 입력은 0 반환.
+  static int calcAgeFromBirthDate(String bd) {
+    final digits = bd.replaceAll(RegExp(r'\D'), '');
+    if (digits.isEmpty) return 0;
+    int year;
+    if (digits.length >= 8) {
+      year = int.tryParse(digits.substring(0, 4)) ?? 0;
+    } else if (digits.length >= 6) {
+      final yy = int.tryParse(digits.substring(0, 2)) ?? -1;
+      if (yy < 0) return 0;
+      final yyNow = DateTime.now().year % 100;
+      year = yy <= yyNow ? 2000 + yy : 1900 + yy;
+    } else {
+      return 0;
+    }
+    if (year < 1900 || year > DateTime.now().year) return 0;
+    final age = DateTime.now().year - year;
+    return (age >= 0 && age <= 120) ? age : 0;
+  }
 }
