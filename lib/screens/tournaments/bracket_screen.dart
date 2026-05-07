@@ -1965,15 +1965,6 @@ class _ClubLookupSection extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(children: [
-            Container(
-              width: 4,
-              height: 14,
-              decoration: BoxDecoration(
-                color: AppColors.primaryMid,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(width: 8),
             Expanded(
               child: Text(club,
                   style: const TextStyle(
@@ -1981,91 +1972,22 @@ class _ClubLookupSection extends StatelessWidget {
                       fontWeight: FontWeight.w800,
                       color: AppColors.text)),
             ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(
-                color: const Color(0xFFEFF6FF),
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: Text('${players.length}명',
-                  style: const TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.primaryMid)),
-            ),
+            Text('${players.length}명',
+                style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.muted)),
           ]),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: players.map((p) {
-              return Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-                decoration: BoxDecoration(
-                  color: _gradePastelBg(p.grade),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  Text(p.name,
-                      style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: _gradePastelFg(p.grade))),
-                  const SizedBox(width: 4),
-                  Text(p.grade,
-                      style: TextStyle(
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w600,
-                          color: _gradePastelFg(p.grade).withOpacity(0.8))),
-                ]),
-              );
-            }).toList(),
+          const SizedBox(height: 4),
+          Text(
+            players.map((p) => p.name).join(', '),
+            style: const TextStyle(
+                fontSize: 13,
+                color: AppColors.text2,
+                height: 1.45),
           ),
         ],
       ),
     );
-  }
-}
-
-Color _gradePastelBg(String grade) {
-  switch (grade) {
-    case 'A조':
-      return const Color(0xFFDBEAFE);
-    case 'B조':
-      return const Color(0xFFD1FAE5);
-    case 'C조':
-      return const Color(0xFFFEF3C7);
-    case 'D조':
-      return const Color(0xFFFFE4E6);
-    case '초심조':
-      return const Color(0xFFF3E8FF);
-    case 'S조':
-      return const Color(0xFFE0F2FE);
-    case '자강조':
-      return const Color(0xFFFCE7F3);
-    default:
-      return const Color(0xFFF1F5F9);
-  }
-}
-
-Color _gradePastelFg(String grade) {
-  switch (grade) {
-    case 'A조':
-      return const Color(0xFF1E40AF);
-    case 'B조':
-      return const Color(0xFF065F46);
-    case 'C조':
-      return const Color(0xFF92400E);
-    case 'D조':
-      return const Color(0xFF9F1239);
-    case '초심조':
-      return const Color(0xFF6B21A8);
-    case 'S조':
-      return const Color(0xFF075985);
-    case '자강조':
-      return const Color(0xFF9D174D);
-    default:
-      return const Color(0xFF6B7A99);
   }
 }
