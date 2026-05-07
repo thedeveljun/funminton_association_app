@@ -311,6 +311,7 @@ class _UploadScreenState extends State<UploadScreen> {
       final errors = <String>[];
       final unregClubs = <String>{};
       int normalizedCount = 0;
+      int badBirthCount = 0;
       for (var i = 0; i < rows.length; i++) {
         final row = rows[i];
         if (widget.type == UploadType.club) {
@@ -338,11 +339,11 @@ class _UploadScreenState extends State<UploadScreen> {
           if (gradeRaw.isEmpty) {
             errors.add('${i + 1}번째 데이터: 급수 필수');
           }
+          // 경고: 생년월일 형식 이상 (6/8자리 아님) — 0세로 저장하고 진행
           if (birthDate.isNotEmpty) {
             final digits = birthDate.replaceAll(RegExp(r'\D'), '');
             if (digits.length != 6 && digits.length != 8) {
-              errors.add(
-                  '${i + 1}번째: 생년월일은 6자리(예 850315) 또는 8자리(예 19850315)');
+              badBirthCount++;
             }
           }
 
@@ -377,6 +378,9 @@ class _UploadScreenState extends State<UploadScreen> {
       }
       if (normalizedCount > 0) {
         warnings.add('급수 자동 정규화 $normalizedCount건 (예: A → A조)');
+      }
+      if (badBirthCount > 0) {
+        warnings.add('생년월일 형식 이상 $badBirthCount건 — 나이 0으로 저장 (수동 보정 필요)');
       }
 
       setState(() {
