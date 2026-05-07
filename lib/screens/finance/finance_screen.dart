@@ -61,6 +61,71 @@ class _FinanceScreenState extends State<FinanceScreen>
       ..showSnackBar(SnackBar(content: Text(msg)));
   }
 
+  Future<void> _confirmClearAllTransactions() async {
+    final total = _transactions.length;
+    if (total == 0) {
+      _snack('삭제할 거래내역이 없습니다.');
+      return;
+    }
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('거래내역 전체 삭제',
+            style: TextStyle(
+                fontSize: 16, fontWeight: FontWeight.w800, color: kInk)),
+        content: Text(
+          '전체 삭제하시겠습니까?\n\n'
+          '저장된 $total건의 수입/지출 내역이 모두 삭제됩니다.\n'
+          '협회비 납부 / 분담금 / 찬조에 연결된 수입 거래도 함께 삭제됩니다.\n'
+          '⚠️ 이 작업은 되돌릴 수 없습니다.',
+          style: const TextStyle(fontSize: 14, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('취소'),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: kExpenseFg),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('전체 삭제',
+                style: TextStyle(fontWeight: FontWeight.w800)),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    setState(() {
+      _transactions.clear();
+      // 연결된 분담금/찬조의 납부 상태(txId)도 끊어 일관성 유지
+      for (var i = 0; i < SampleData.clubShares.length; i++) {
+        final s = SampleData.clubShares[i];
+        if (s.txId != null) {
+          SampleData.clubShares[i] = ClubShare(
+            id: s.id,
+            tournamentId: s.tournamentId,
+            tournamentName: s.tournamentName,
+            clubId: s.clubId,
+            clubName: s.clubName,
+            amount: s.amount,
+            paid: false,
+            paidDate: null,
+            txId: null,
+            memo: s.memo,
+          );
+        }
+      }
+      // 선수별 협회비 납부 기록도 함께 삭제 (수입 거래와 1:1 대응)
+      SampleData.playerFeePayments.clear();
+    });
+    await SampleData.saveTransactions();
+    await SampleData.saveClubShares();
+    await SampleData.savePlayerFeePayments();
+    _snack('$total건의 거래내역을 삭제했습니다.');
+  }
+
   Future<void> _showAddDialog() async {
     await showDialog<void>(
       context: context,
@@ -524,6 +589,7 @@ class _FinanceScreenState extends State<FinanceScreen>
             IncomeExpenseTab(
               transactions: _transactions,
               onAddTap: _showAddDialog,
+              onClearAllTap: _confirmClearAllTransactions,
               onItemTap: _showEditDialog,
             ),
             SummaryTab(

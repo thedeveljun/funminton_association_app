@@ -23,10 +23,12 @@ import 'transaction_row.dart';
 class IncomeExpenseTab extends StatelessWidget {
   final List<FinanceTransaction> transactions;
   final VoidCallback onAddTap;
+  final VoidCallback onClearAllTap;
   final void Function(FinanceTransaction) onItemTap;
   const IncomeExpenseTab({
     required this.transactions,
     required this.onAddTap,
+    required this.onClearAllTap,
     required this.onItemTap,
   });
 
@@ -126,24 +128,40 @@ class IncomeExpenseTab extends StatelessWidget {
           Positioned(
             top: 0,
             right: 0,
-            child: GestureDetector(
-              onTap: onAddTap,
-              child: Container(
-                width: 32,
-                height: 32,
-                decoration: BoxDecoration(
-                  color: kBannerAddBtn,
-                  borderRadius: BorderRadius.circular(10),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              GestureDetector(
+                onTap: onClearAllTap,
+                child: Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: kBannerAddBtn,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.delete_sweep_rounded,
+                      color: Colors.white, size: 18),
                 ),
-                child: const Icon(Icons.add, color: Colors.white, size: 18),
               ),
-            ),
+              const SizedBox(width: 6),
+              GestureDetector(
+                onTap: onAddTap,
+                child: Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: kBannerAddBtn,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.add, color: Colors.white, size: 18),
+                ),
+              ),
+            ]),
           ),
           Row(children: [
             Expanded(child: BannerAmountBlock(label: '수입', amount: txIncome)),
             const SizedBox(width: 12),
             Expanded(child: BannerAmountBlock(label: '지출', amount: txExpense)),
-            const SizedBox(width: 40),
+            const SizedBox(width: 78),
           ]),
         ]),
       ),
