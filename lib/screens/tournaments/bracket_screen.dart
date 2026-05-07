@@ -14,6 +14,7 @@ import '../../widgets/common/stat_banner.dart';
 import '../../widgets/players/player_list_item.dart';
 import '../../widgets/bracket/match_card.dart';
 import '../../widgets/bracket/score_input_sheet.dart';
+import 'entry_upload_screen.dart';
 
 const _headerInk = Color(0xFF0D1B3E);
 
@@ -60,6 +61,10 @@ class _BracketScreenState extends State<BracketScreen>
   String _venueFilter = 'all';
   String _dayFilter = 'all';
   List<PlayerStats> _rankings = [];
+
+  /// 참가신청 엑셀 업로드로 누적된 종목별 카운트.
+  /// 비어있으면 BottomSheet 에 종목 요약 라인 미노출.
+  Map<String, int> _entryEventCounts = const {};
 
   /// "전체" 제외, 실제 연령 그룹 라벨 목록
   List<String> get _ageGroupLabels =>
@@ -456,29 +461,28 @@ class _ParticipantsTab extends StatelessWidget {
               padding: EdgeInsets.zero,
             ),
           ),
-          const SizedBox(width: 8),
-          OutlinedButton.icon(
-            onPressed: () => _showClubLookup(context, s),
-            icon: const Icon(Icons.groups_2_outlined, size: 16),
-            label: const Text('클럽별조회'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppColors.primaryMid,
-              backgroundColor: const Color(0xFFEFF6FF),
-              side: const BorderSide(
-                  color: Color(0xFFBFDBFE), width: 1.4),
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              minimumSize: Size.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(999),
-              ),
-              textStyle: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                letterSpacing: -0.2,
-              ),
-            ),
+          const SizedBox(width: 6),
+          _PillBtn(
+            icon: Icons.groups_2_outlined,
+            label: '클럽별',
+            onTap: () => _showClubLookup(context, s),
+          ),
+        ]),
+      ),
+      Container(
+        color: AppColors.white,
+        padding: const EdgeInsets.fromLTRB(14, 0, 14, 2),
+        child: Row(children: [
+          _PillBtn(
+            icon: Icons.download_rounded,
+            label: '양식 다운로드',
+            onTap: () => _onEntrySampleDownload(context),
+          ),
+          const SizedBox(width: 6),
+          _PillBtn(
+            icon: Icons.cloud_upload_rounded,
+            label: '신청서 업로드',
+            onTap: () => _onEntryUpload(context, s),
           ),
         ]),
       ),
@@ -1914,6 +1918,17 @@ void _showClubLookup(BuildContext context, _BracketScreenState s) {
                 ),
               ]),
             ),
+            if (s._entryEventCounts.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+                child: Text(
+                  _formatEventCounts(s._entryEventCounts),
+                  style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.text2),
+                ),
+              ),
             const SizedBox(height: 6),
             const Divider(height: 1, color: AppColors.divider),
             Expanded(
@@ -1945,6 +1960,85 @@ void _showClubLookup(BuildContext context, _BracketScreenState s) {
       );
     },
   );
+}
+
+String _formatEventCounts(Map<String, int> counts) {
+  final order = ['혼복', '남복', '여복', '단식'];
+  final parts = <String>[];
+  for (final k in order) {
+    final n = counts[k] ?? 0;
+    if (n == 0) continue;
+    final unit = k == '단식' ? '명' : '쌍';
+    final num = unit == '쌍' ? (n / 2).ceil() : n;
+    parts.add('$k $num$unit');
+  }
+  return parts.isEmpty ? '' : parts.join(' · ');
+}
+
+Future<void> _onEntrySampleDownload(BuildContext context) async {
+  // 업로드 화면을 열되 다운로드만 활용하도록 안내. 별도 분리 시 코드 중복이 커서
+  // 같은 화면을 재사용. 사용자는 1단계 카드의 다운로드만 누르고 뒤로가기.
+  await Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) =>
+          const EntryUploadScreen(existingSelected: <String>{}),
+    ),
+  );
+}
+
+Future<void> _onEntryUpload(
+    BuildContext context, _BracketScreenState s) async {
+  final result = await Navigator.push<EntryUploadResult>(
+    context,
+    MaterialPageRoute(
+      builder: (_) => EntryUploadScreen(existingSelected: s._selected),
+    ),
+  );
+  if (result == null) return;
+  s.rebuild(() {
+    s._selected
+      ..clear()
+      ..addAll(result.selectedPlayerIds);
+    final merged = <String, int>{...s._entryEventCounts};
+    result.eventCounts.forEach((k, v) {
+      merged[k] = (merged[k] ?? 0) + v;
+    });
+    s._entryEventCounts = merged;
+  });
+}
+
+class _PillBtn extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  const _PillBtn({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+  @override
+  Widget build(BuildContext context) {
+    return OutlinedButton.icon(
+      onPressed: onTap,
+      icon: Icon(icon, size: 14),
+      label: Text(label),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: AppColors.primaryMid,
+        backgroundColor: const Color(0xFFEFF6FF),
+        side: const BorderSide(color: Color(0xFFBFDBFE), width: 1.4),
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+        minimumSize: Size.zero,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+        textStyle: const TextStyle(
+          fontSize: 11.5,
+          fontWeight: FontWeight.w700,
+          letterSpacing: -0.2,
+        ),
+      ),
+    );
+  }
 }
 
 class _ClubLookupSection extends StatelessWidget {
