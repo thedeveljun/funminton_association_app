@@ -183,8 +183,22 @@ class _BracketScreenState extends State<BracketScreen>
         _ageGroupLabels.isNotEmpty &&
             _ageGroupLabels.every(_activeAgeGroups.contains);
     setState(() {
+      // 새 라벨 추가 후 나이 순(숫자 오름차순) 재정렬.
+      // '전체'는 맨 앞 고정. 숫자 라벨은 오름차순. 텍스트 라벨은 숫자 뒤에 기존 상대 순서 유지.
+      final combined = [..._tournament.ageGroups, label];
+      final hasAll = combined.remove('전체');
+      final numeric = <String>[];
+      final textual = <String>[];
+      for (final l in combined) {
+        if (int.tryParse(l) != null) {
+          numeric.add(l);
+        } else {
+          textual.add(l);
+        }
+      }
+      numeric.sort((a, b) => int.parse(a).compareTo(int.parse(b)));
       _tournament = _tournament
-          .copyWith(ageGroups: [..._tournament.ageGroups, label]);
+          .copyWith(ageGroups: [if (hasAll) '전체', ...numeric, ...textual]);
       if (masterOn) {
         _activeAgeGroups.add(label);
         _openSections.add(label);
@@ -208,13 +222,41 @@ class _BracketScreenState extends State<BracketScreen>
     _persistTournament();
   }
 
+  /// 급수 정렬 순서: 자강조 → S조 → A조 → B조 → C조 → D조 → E조 → 초심조.
+  /// 알 수 없는 라벨은 표 뒤(원래 순서 유지) — '전체'는 항상 맨 앞.
+  static const Map<String, int> _gradeGroupSortOrder = {
+    '자강조': 0,
+    'S조': 1,
+    'A조': 2,
+    'B조': 3,
+    'C조': 4,
+    'D조': 5,
+    'E조': 6,
+    '초심조': 7,
+  };
+
   void _addGradeGroup(String label) {
     final masterOn =
         _gradeGroupLabels.isNotEmpty &&
             _gradeGroupLabels.every(_activeGrades.contains);
     setState(() {
+      // 새 라벨 추가 후 표준 급수 순서로 재정렬.
+      // '전체'는 맨 앞, 표에 있는 급수는 정해진 순서, 그 외는 표 뒤에 기존 상대 순서 유지.
+      final combined = [..._tournament.gradeGroups, label];
+      final hasAll = combined.remove('전체');
+      final known = <String>[];
+      final unknown = <String>[];
+      for (final l in combined) {
+        if (_gradeGroupSortOrder.containsKey(l)) {
+          known.add(l);
+        } else {
+          unknown.add(l);
+        }
+      }
+      known.sort((a, b) =>
+          _gradeGroupSortOrder[a]!.compareTo(_gradeGroupSortOrder[b]!));
       _tournament = _tournament
-          .copyWith(gradeGroups: [..._tournament.gradeGroups, label]);
+          .copyWith(gradeGroups: [if (hasAll) '전체', ...known, ...unknown]);
       if (masterOn) _activeGrades.add(label);
     });
     _persistTournament();
@@ -304,6 +346,9 @@ class _BracketScreenState extends State<BracketScreen>
   @override
   Widget build(BuildContext context) {
     final selCount = _selected.length;
+    final hasParticipants = selCount > 0;
+    final hasBracket = _matches.isNotEmpty;
+    const doneBg = Color(0xFFC6F6D5); // 연한 그린 — 완료 표시
 
     return Scaffold(
       backgroundColor: AppColors.gray,
@@ -335,12 +380,19 @@ class _BracketScreenState extends State<BracketScreen>
           tabs: [
             Tab(
                 height: 60,
-                child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  const Text('참가자',
-                      style:
-                          TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-                  Text('$selCount명', style: const TextStyle(fontSize: 11)),
-                ])),
+                child: Container(
+                  width: double.infinity,
+                  height: 60,
+                  alignment: Alignment.center,
+                  color: hasParticipants ? doneBg : null,
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    const Text('참가자',
+                        style: TextStyle(
+                            fontSize: 15, fontWeight: FontWeight.w600)),
+                    Text('$selCount명',
+                        style: const TextStyle(fontSize: 11)),
+                  ]),
+                )),
             const Tab(
                 height: 60,
                 child: Text('설정',
@@ -348,13 +400,19 @@ class _BracketScreenState extends State<BracketScreen>
                         TextStyle(fontSize: 15, fontWeight: FontWeight.w600))),
             Tab(
                 height: 60,
-                child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  const Text('대진표',
-                      style:
-                          TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-                  Text(_matches.isEmpty ? '-' : '${_matches.length}경기',
-                      style: const TextStyle(fontSize: 11)),
-                ])),
+                child: Container(
+                  width: double.infinity,
+                  height: 60,
+                  alignment: Alignment.center,
+                  color: hasBracket ? doneBg : null,
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    const Text('대진표',
+                        style: TextStyle(
+                            fontSize: 15, fontWeight: FontWeight.w600)),
+                    Text(_matches.isEmpty ? '-' : '${_matches.length}경기',
+                        style: const TextStyle(fontSize: 11)),
+                  ]),
+                )),
             const Tab(
                 height: 60,
                 child: Text('성적',
@@ -386,11 +444,43 @@ class _ParticipantsTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Column(children: [
-      FilterChipRow(
-        options: const ['혼복', '남복', '여복'],
-        selected: s._type,
-        onSelect: (v) => s.rebuild(() => s._type = v),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+      Container(
+        color: AppColors.white,
+        padding: const EdgeInsets.fromLTRB(14, 2, 14, 2),
+        child: Row(children: [
+          Expanded(
+            child: FilterChipRow(
+              options: const ['혼복', '남복', '여복'],
+              selected: s._type,
+              onSelect: (v) => s.rebuild(() => s._type = v),
+              padding: EdgeInsets.zero,
+            ),
+          ),
+          const SizedBox(width: 8),
+          OutlinedButton.icon(
+            onPressed: () => _showClubLookup(context, s),
+            icon: const Icon(Icons.groups_2_outlined, size: 16),
+            label: const Text('클럽별조회'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.primaryMid,
+              backgroundColor: const Color(0xFFEFF6FF),
+              side: const BorderSide(
+                  color: Color(0xFFBFDBFE), width: 1.4),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(999),
+              ),
+              textStyle: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                letterSpacing: -0.2,
+              ),
+            ),
+          ),
+        ]),
       ),
       Container(
         color: AppColors.white,
@@ -914,6 +1004,14 @@ class _AgedPlayerList extends StatelessWidget {
           filtered
               .where((p) => ageMatches(label, p.age, s._ageGroupLabels))
               .toList();
+      // 동일 조건(같은 연령 섹션) 내 정렬: 급수(자강조 → ... → 초심조) → 나이↑ → 이름 가나다
+      arr.sort((a, b) {
+        final g = a.gradeIndex.compareTo(b.gradeIndex);
+        if (g != 0) return g;
+        final ag = a.age.compareTo(b.age);
+        if (ag != 0) return ag;
+        return a.name.compareTo(b.name);
+      });
       if (arr.isEmpty) continue;
       final selCnt = arr.where((p) => s._selected.contains(p.id)).length;
       final isOpen = s._openSections.contains(label);
@@ -1240,7 +1338,7 @@ class _VenueEditCardState extends State<_VenueEditCard> {
           style: const TextStyle(fontSize: 14, height: 1.0),
           decoration: const InputDecoration(
             labelText: '대회장소',
-            hintText: '예: 과천시민체육관',
+            hintText: '예: 한국시민체육관',
             isDense: true,
             contentPadding:
                 EdgeInsets.symmetric(horizontal: 10, vertical: 9),
@@ -1253,7 +1351,7 @@ class _VenueEditCardState extends State<_VenueEditCard> {
           style: const TextStyle(fontSize: 14, height: 1.0),
           decoration: const InputDecoration(
             labelText: '위치',
-            hintText: '예: 경기도 과천시 중앙로 123',
+            hintText: '예: 한국 한국시 중앙로 123',
             prefixIcon: Padding(
                 padding: EdgeInsets.only(left: 8, right: 4),
                 child: Icon(Icons.location_on_outlined,
@@ -1751,3 +1849,223 @@ Widget _card(
         child,
       ]),
     );
+
+// ═══════════════════════════════════════════════════════
+//  클럽별 참가자 조회 (BottomSheet)
+// ═══════════════════════════════════════════════════════
+void _showClubLookup(BuildContext context, _BracketScreenState s) {
+  final selPlayers = SampleData.players
+      .where((p) => s._selected.contains(p.id))
+      .toList();
+
+  // 클럽명 → 선수 목록
+  final byClub = <String, List<Player>>{};
+  for (final p in selPlayers) {
+    final key = p.clubName.trim().isEmpty ? '(소속 미지정)' : p.clubName.trim();
+    byClub.putIfAbsent(key, () => []).add(p);
+  }
+  final clubNames = byClub.keys.toList()..sort();
+
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: AppColors.white,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+    ),
+    builder: (ctx) {
+      final mq = MediaQuery.of(ctx);
+      final maxH = mq.size.height * 0.78;
+      return ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxH),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppColors.gray2,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(children: [
+                const Text('클럽별 참가자',
+                    style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.text)),
+                const SizedBox(width: 8),
+                Text('${selPlayers.length}명 · ${clubNames.length}개 클럽',
+                    style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.muted)),
+                const Spacer(),
+                IconButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  icon: const Icon(Icons.close, size: 20),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+              ]),
+            ),
+            const SizedBox(height: 6),
+            const Divider(height: 1, color: AppColors.divider),
+            Expanded(
+              child: clubNames.isEmpty
+                  ? const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Text('선택된 참가자가 없습니다.',
+                            style: TextStyle(
+                                fontSize: 13, color: AppColors.muted)),
+                      ),
+                    )
+                  : ListView.separated(
+                      padding: EdgeInsets.fromLTRB(
+                          12, 10, 12, 12 + mq.padding.bottom),
+                      itemCount: clubNames.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                      itemBuilder: (_, i) {
+                        final club = clubNames[i];
+                        final players = byClub[club]!
+                          ..sort((a, b) => a.name.compareTo(b.name));
+                        return _ClubLookupSection(
+                            club: club, players: players);
+                      },
+                    ),
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
+
+class _ClubLookupSection extends StatelessWidget {
+  final String club;
+  final List<Player> players;
+  const _ClubLookupSection({required this.club, required this.players});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFD1D9E6), width: 1.2),
+      ),
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Container(
+              width: 4,
+              height: 14,
+              decoration: BoxDecoration(
+                color: AppColors.primaryMid,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(club,
+                  style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.text)),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEFF6FF),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text('${players.length}명',
+                  style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.primaryMid)),
+            ),
+          ]),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: players.map((p) {
+              return Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                decoration: BoxDecoration(
+                  color: _gradePastelBg(p.grade),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Text(p.name,
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: _gradePastelFg(p.grade))),
+                  const SizedBox(width: 4),
+                  Text(p.grade,
+                      style: TextStyle(
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w600,
+                          color: _gradePastelFg(p.grade).withOpacity(0.8))),
+                ]),
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+Color _gradePastelBg(String grade) {
+  switch (grade) {
+    case 'A조':
+      return const Color(0xFFDBEAFE);
+    case 'B조':
+      return const Color(0xFFD1FAE5);
+    case 'C조':
+      return const Color(0xFFFEF3C7);
+    case 'D조':
+      return const Color(0xFFFFE4E6);
+    case '초심조':
+      return const Color(0xFFF3E8FF);
+    case 'S조':
+      return const Color(0xFFE0F2FE);
+    case '자강조':
+      return const Color(0xFFFCE7F3);
+    default:
+      return const Color(0xFFF1F5F9);
+  }
+}
+
+Color _gradePastelFg(String grade) {
+  switch (grade) {
+    case 'A조':
+      return const Color(0xFF1E40AF);
+    case 'B조':
+      return const Color(0xFF065F46);
+    case 'C조':
+      return const Color(0xFF92400E);
+    case 'D조':
+      return const Color(0xFF9F1239);
+    case '초심조':
+      return const Color(0xFF6B21A8);
+    case 'S조':
+      return const Color(0xFF075985);
+    case '자강조':
+      return const Color(0xFF9D174D);
+    default:
+      return const Color(0xFF6B7A99);
+  }
+}
