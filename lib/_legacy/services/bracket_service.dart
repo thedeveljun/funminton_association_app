@@ -1,7 +1,7 @@
 import 'dart:math';
-import '../models/match.dart';
-import '../models/player.dart';
-import '../models/venue.dart';
+import '../../models/match.dart';
+import '../../models/player.dart';
+import '../../models/venue.dart';
 
 /// 대진표 자동 생성 서비스
 /// 알고리즘 원칙:
@@ -75,14 +75,13 @@ class BracketService {
       final lastGameOf = <String, int>{};
 
       for (int r = 0; r < totalGames; r++) {
-        final rtype = r % 3 == 0 ? MatchType.sameGrade : MatchType.balanced;
+        const rtype = MatchType.sameGrade; // 모든 대회는 동일 급수
         final cNum = vCourts[r % vCourts.length];
         final ci = courtMap[cNum]!;
         final day = totalDays == 2 ? (r < (totalGames / 2).ceil() ? 1 : 2) : 1;
 
         // 팀 구성 (동일 클럽 회피 + 연속 경기 지양)
         final teams = _pickTeams(
-          rtype,
           vPlayers,
           byGrade,
           lastGameOf,
@@ -119,25 +118,16 @@ class BracketService {
 
   // ── 팀 구성 ───────────────────────────────
   static List<List<Player>>? _pickTeams(
-    MatchType type,
     List<Player> all,
     Map<String, List<Player>> byGrade,
     Map<String, int> lastGame,
     int currentRound,
   ) {
-    List<Player> pool;
-
-    if (type == MatchType.sameGrade) {
-      // 4명 이상인 급수 중 랜덤 선택
-      final valid = byGrade.entries.where((e) => e.value.length >= 4).toList();
-      if (valid.isEmpty) {
-        pool = List.from(all);
-      } else {
-        pool = List.from(valid[_rng.nextInt(valid.length)].value);
-      }
-    } else {
-      pool = List.from(all);
-    }
+    // 모든 대회는 동일 급수 — 4명 이상인 급수 중 랜덤 선택, 부족하면 전체 풀 사용
+    final valid = byGrade.entries.where((e) => e.value.length >= 4).toList();
+    final pool = valid.isEmpty
+        ? List<Player>.from(all)
+        : List<Player>.from(valid[_rng.nextInt(valid.length)].value);
 
     // 연속 경기 지양: 직전 경기 참여자 뒤로
     pool.sort((a, b) {
@@ -183,7 +173,9 @@ class BracketService {
     Map<AssignKey, String> assignMap,
     List<Venue> venues,
   ) {
-    final key = AssignKey(p.decadeKey, p.grade);
+    // assignMap 의 grade 키는 '조' 없는 짧은 라벨('A','B','C','D','초심').
+    // Player.grade 는 'A조'/'B조'/... 라서 gradeShort 로 정규화해야 매칭됨.
+    final key = AssignKey(p.decadeKey, p.gradeShort);
     return assignMap[key] ?? venues.first.id;
   }
 

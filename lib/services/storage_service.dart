@@ -28,6 +28,7 @@ class StorageService {
   static const _kTransactions = 'data_transactions_v1';
   static const _kClubShares = 'data_club_shares_v1';
   static const _kDonations = 'data_donations_v1';
+  static const _kPlayerFeeUnit = 'cfg_player_fee_unit_v1';
 
   // ─── CLUBS ────────────────────────────────────
 
@@ -121,6 +122,18 @@ class StorageService {
   static Future<List<String>?> loadGradeOrder() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getStringList(_kGradeOrder);
+  }
+
+  // ─── 협회비 단가 (협회별 정책) ──────────────────
+
+  static Future<void> savePlayerFeeUnit(int amount) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_kPlayerFeeUnit, amount);
+  }
+
+  static Future<int?> loadPlayerFeeUnit() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt(_kPlayerFeeUnit);
   }
 
   // ─── SCHEDULED TOURNAMENTS ────────────────────

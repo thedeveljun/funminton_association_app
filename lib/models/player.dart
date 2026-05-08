@@ -89,6 +89,17 @@ class Player {
         awards: (m['awards'] as List?)?.cast<String>() ?? const [],
       );
 
+  /// 다양한 입력 포맷을 6자리 YYMMDD 표준형으로 정규화.
+  /// 허용: "981127", "98-11-27", "1998.11.27", "98.11.27", "1998-11-27" 등.
+  /// 8자리(YYYYMMDD)는 앞 2자리(세기) 잘라서 6자리로 변환.
+  /// 정규화 실패시 '' 반환 (오류 없음).
+  static String normalizeBirthDate(String raw) {
+    final digits = raw.replaceAll(RegExp(r'\D'), '');
+    if (digits.length == 6) return digits;
+    if (digits.length == 8) return digits.substring(2);
+    return '';
+  }
+
   /// 생년월일 문자열 → 만 나이.
   /// 허용 포맷: "850315", "19850315", "1985-03-15", "85.03.15", "850315-1234567"
   /// YY <= 현재연도 두자리 → 2000년대, 그 외 → 1900년대.

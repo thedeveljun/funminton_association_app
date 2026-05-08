@@ -472,6 +472,11 @@ class _EntryUploadScreenState extends State<EntryUploadScreen> {
 
     setState(() => _uploaded = true);
 
+    // 신규 등록된 선수가 있으면 즉시 영구 저장 (앱 재실행 후에도 유지)
+    if (newPlayerCount > 0) {
+      SampleData.savePlayers();
+    }
+
     final result = EntryUploadResult(
       selectedPlayerIds: selected.toList(),
       eventCounts: eventCounts,

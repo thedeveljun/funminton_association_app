@@ -5,15 +5,12 @@ import '../../models/match.dart';
 import '../../models/player.dart';
 import '../../models/tournament.dart';
 import '../../models/venue.dart';
-import '../../services/bracket_service.dart';
 import '../../services/sample_data.dart';
 import '../../services/storage_service.dart';
 import '../../utils/age_group.dart';
+import '../../widgets/bracket/bracket_generator_tab.dart';
 import '../../widgets/common/filter_chips.dart';
-import '../../widgets/common/stat_banner.dart';
 import '../../widgets/players/player_list_item.dart';
-import '../../widgets/bracket/match_card.dart';
-import '../../widgets/bracket/score_input_sheet.dart';
 import 'entry_upload_screen.dart';
 
 const _headerInk = Color(0xFF0D1B3E);
@@ -56,11 +53,6 @@ class _BracketScreenState extends State<BracketScreen>
   final Map<AssignKey, String> _assignMap = {};
   Timer? _persistDebounce;
   static const int _maxCourtsPerVenue = 10;
-
-  List<Match> _matches = [];
-  String _venueFilter = 'all';
-  String _dayFilter = 'all';
-  List<PlayerStats> _rankings = [];
 
   /// 참가신청 엑셀 업로드로 누적된 종목별 카운트.
   /// 비어있으면 BottomSheet 에 종목 요약 라인 미노출.
@@ -308,51 +300,10 @@ class _BracketScreenState extends State<BracketScreen>
     return list;
   }
 
-  void _generateBracket() {
-    final selPlayers =
-        SampleData.players.where((p) => _selected.contains(p.id)).toList();
-    if (selPlayers.length < 4) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('최소 4명 이상 선택하세요.')));
-      return;
-    }
-    final matches = BracketService.generate(
-      tournamentId: _tournament.id,
-      players: selPlayers,
-      venues: _venues,
-      totalDays: _totalDays,
-      assignMap: _assignMap,
-    );
-    setState(() {
-      _matches = matches;
-      _rankings = [];
-    });
-    _tc.animateTo(2);
-    ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('대진표 생성 완료: ${matches.length}경기')));
-  }
-
-  Future<void> _saveScore(Match match, int sA, int sB) async {
-    setState(() {
-      final idx = _matches.indexWhere((m) => m.id == match.id);
-      if (idx >= 0) {
-        _matches[idx] = _matches[idx]
-            .copyWith(scoreA: sA, scoreB: sB, status: MatchStatus.done);
-      }
-    });
-    final selPlayers =
-        SampleData.players.where((p) => _selected.contains(p.id)).toList();
-    setState(() {
-      _rankings =
-          BracketService.calcRankings(players: selPlayers, matches: _matches);
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     final selCount = _selected.length;
     final hasParticipants = selCount > 0;
-    final hasBracket = _matches.isNotEmpty;
     const doneBg = Color(0xFFC6F6D5); // 연한 그린 — 완료 표시
 
     return Scaffold(
@@ -403,21 +354,11 @@ class _BracketScreenState extends State<BracketScreen>
                 child: Text('설정',
                     style:
                         TextStyle(fontSize: 15, fontWeight: FontWeight.w600))),
-            Tab(
+            const Tab(
                 height: 60,
-                child: Container(
-                  width: double.infinity,
-                  height: 60,
-                  alignment: Alignment.center,
-                  color: hasBracket ? doneBg : null,
-                  child: Column(mainAxisSize: MainAxisSize.min, children: [
-                    const Text('대진표',
-                        style: TextStyle(
-                            fontSize: 15, fontWeight: FontWeight.w600)),
-                    Text(_matches.isEmpty ? '-' : '${_matches.length}경기',
-                        style: const TextStyle(fontSize: 11)),
-                  ]),
-                )),
+                child: Text('대진표',
+                    style:
+                        TextStyle(fontSize: 15, fontWeight: FontWeight.w600))),
             const Tab(
                 height: 60,
                 child: Text('성적',
@@ -431,8 +372,8 @@ class _BracketScreenState extends State<BracketScreen>
         children: [
           _ParticipantsTab(this),
           _SettingsTab(this),
-          _BracketTab(this),
-          _ResultsTab(this),
+          BracketGeneratorTab(tournament: _tournament),
+          const _ResultsTab(),
         ],
       ),
     );
@@ -1130,16 +1071,6 @@ class _SettingsTab extends StatelessWidget {
               (i) => _VenueEditCard(s: s, index: i)),
           _AssignTable(s),
           _CourtSummary(s),
-          Container(
-              width: double.infinity,
-              margin: const EdgeInsets.fromLTRB(12, 6, 12, 4),
-              child: ElevatedButton(
-                  onPressed: s._generateBracket,
-                  style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 11)),
-                  child: const Text('✦ 대진표 생성',
-                      style: TextStyle(
-                          fontSize: 15, fontWeight: FontWeight.w700)))),
         ]),
       );
 }
@@ -1550,276 +1481,16 @@ class _CourtSummary extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════
-//  TAB 3: 대진표
-// ═══════════════════════════════════════════════════════
-class _BracketTab extends StatelessWidget {
-  final _BracketScreenState s;
-  const _BracketTab(this.s);
-
-  // ★ 클래스 메서드로 올바르게 선언
-  Widget _dayTab(BuildContext context, String val, String lbl) {
-    final on = s._dayFilter == val;
-    return Expanded(
-        child: GestureDetector(
-      onTap: () => s.rebuild(() => s._dayFilter = val),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        decoration: BoxDecoration(
-            border: Border(
-                bottom: BorderSide(
-                    color: on ? AppColors.blue : Colors.transparent,
-                    width: 2.5))),
-        child: Center(
-            child: Text(lbl,
-                style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: on ? AppColors.blue : AppColors.muted))),
-      ),
-    ));
-  }
-
-  Widget _vBtn(String id, String lbl, Color? color) {
-    final on = s._venueFilter == id;
-    return Padding(
-      padding: const EdgeInsets.only(right: 5),
-      child: GestureDetector(
-        onTap: () => s.rebuild(() => s._venueFilter = id),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 120),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-          decoration: BoxDecoration(
-              color: on ? (color ?? AppColors.blue2) : AppColors.gray,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                  color: on ? (color ?? AppColors.blue2) : Colors.transparent,
-                  width: 1.5)),
-          child: Text(lbl,
-              style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: on ? Colors.white : AppColors.text2)),
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (s._matches.isEmpty) {
-      return Center(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          const Text('아직 대진표가 없습니다.',
-              style: TextStyle(fontSize: 14, color: AppColors.muted)),
-          const SizedBox(height: 14),
-          ElevatedButton(
-              onPressed: s._generateBracket,
-              style: ElevatedButton.styleFrom(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-              ),
-              child: const Text('대진표 생성하기',
-                  style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                      height: 1.2))),
-        ]),
-      );
-    }
-
-    final done = s._matches.where((m) => m.isDone).length;
-    final total = s._matches.length;
-    final selCnt = s._selected.length;
-    final totalCourts = s._venues.fold(0, (sum, v) => sum + v.courts);
-
-    var filtered = s._matches;
-    if (s._venueFilter != 'all') {
-      filtered = filtered.where((m) => m.venueId == s._venueFilter).toList();
-    }
-    if (s._dayFilter != 'all') {
-      filtered =
-          filtered.where((m) => m.day.toString() == s._dayFilter).toList();
-    }
-
-    final grouped = <String, List<Match>>{};
-    for (final m in filtered) {
-      final k = '${m.venueId}-${m.courtNumber}';
-      grouped.putIfAbsent(k, () => []).add(m);
-    }
-
-    return Column(children: [
-      StatBanner(items: [
-        StatItem('$selCnt명', '참가'),
-        StatItem('$totalCourts코트', '총코트'),
-        StatItem('${total}경기', '경기'),
-        StatItem('$done완료', '완료'),
-      ]),
-      if (s._totalDays >= 2)
-        Container(
-          color: AppColors.white,
-          child: Row(children: [
-            _dayTab(context, 'all', '전체'),
-            for (int d = 1; d <= s._totalDays; d++)
-              _dayTab(context, '$d', '$d일차'),
-          ]),
-        ),
-      Container(
-        color: AppColors.white,
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(children: [
-            _vBtn('all', '전체', null),
-            ...s._venues.map((v) {
-              final cnt = s._matches.where((m) => m.venueId == v.id).length;
-              if (cnt == 0) return const SizedBox();
-              Color col;
-              final hex = v.colorHex.replaceAll('#', '');
-              try {
-                col = Color(int.parse('FF$hex', radix: 16));
-              } catch (_) {
-                col = AppColors.blue;
-              }
-              return _vBtn(v.id, '${v.name}($cnt)', col);
-            }),
-          ]),
-        ),
-      ),
-      const Divider(height: 1),
-      // ★ Builder + for 루프로 List<Widget> 명확하게 구성
-      Expanded(
-        child: Builder(
-          builder: (context) {
-            final keys = grouped.keys.toList()..sort();
-            final items = <Widget>[];
-            for (final k in keys) {
-              final ms = grouped[k]!;
-              final first = ms.first;
-              final doneCnt = ms.where((m) => m.isDone).length;
-              items.add(Container(
-                margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
-                decoration: BoxDecoration(
-                    color: AppColors.white,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppColors.gray2, width: .5)),
-                child: Column(children: [
-                  CourtBlockHeader(
-                    title: first.courtLabel,
-                    done: doneCnt,
-                    total: ms.length,
-                    colorHex: first.venueColorHex,
-                  ),
-                  ...ms.map((m) => MatchCard(
-                        match: m,
-                        onTap: () => ScoreInputSheet.show(
-                          context,
-                          m,
-                          (sA, sB) async => s._saveScore(m, sA, sB),
-                        ),
-                      )),
-                ]),
-              ));
-            }
-            return ListView(
-              padding: EdgeInsets.only(
-                bottom: 20 + MediaQuery.of(context).padding.bottom,
-              ),
-              children: items,
-            );
-          },
-        ),
-      ),
-    ]); // ← Column 닫힘
-  } // ← build() 닫힘
-} // ← _BracketTab 클래스 닫힘
-
-// ═══════════════════════════════════════════════════════
 //  TAB 4: 성적
 // ═══════════════════════════════════════════════════════
 class _ResultsTab extends StatelessWidget {
-  final _BracketScreenState s;
-  const _ResultsTab(this.s);
+  const _ResultsTab();
 
   @override
   Widget build(BuildContext context) {
-    if (s._rankings.isEmpty) {
-      return const Center(
-          child: Text('경기 결과를 입력하면 성적이 집계됩니다.',
-              style: TextStyle(color: AppColors.muted)));
-    }
-    const medals = ['🥇', '🥈', '🥉'];
-    return ListView.builder(
-      padding: EdgeInsets.only(
-        bottom: 20 + MediaQuery.of(context).padding.bottom,
-      ),
-      itemCount: s._rankings.length,
-      itemBuilder: (_, i) {
-        final r = s._rankings[i];
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-          decoration: const BoxDecoration(
-              color: AppColors.white,
-              border: Border(bottom: BorderSide(color: AppColors.divider))),
-          child: Row(children: [
-            SizedBox(
-                width: 34,
-                child: Text(i < 3 ? medals[i] : '${i + 1}',
-                    style: TextStyle(
-                        fontSize: i < 3 ? 18 : 14,
-                        fontWeight: FontWeight.w700,
-                        color: i == 0
-                            ? AppColors.amber
-                            : i == 1
-                                ? AppColors.gray3
-                                : i == 2
-                                    ? const Color(0xFF9C4221)
-                                    : AppColors.muted),
-                    textAlign: TextAlign.center)),
-            Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                    color: AppColors.gradeBackground(r.player.grade),
-                    shape: BoxShape.circle),
-                child: Center(
-                    child: Text(r.player.name[0],
-                        style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.gradeText(r.player.grade))))),
-            const SizedBox(width: 10),
-            Expanded(
-                child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                  Row(children: [
-                    Text(r.player.name,
-                        style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.text)),
-                    const SizedBox(width: 4),
-                    Text('(${r.player.gender}) ${r.player.grade}급',
-                        style: const TextStyle(
-                            fontSize: 11, color: AppColors.muted)),
-                  ]),
-                  Text('${r.player.clubName} · ${r.record}',
-                      style: const TextStyle(
-                          fontSize: 11, color: AppColors.muted)),
-                ])),
-            Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-              Text('${r.points}점',
-                  style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.blue)),
-              Text('${r.games}경기',
-                  style: const TextStyle(fontSize: 10, color: AppColors.muted)),
-            ]),
-          ]),
-        );
-      },
-    );
+    return const Center(
+        child: Text('경기 결과를 입력하면 성적이 집계됩니다.',
+            style: TextStyle(color: AppColors.muted)));
   }
 }
 

@@ -325,12 +325,16 @@ class _ClubListScreenState extends State<ClubListScreen> {
         borderRadius: BorderRadius.circular(16),
         child: child,
       ),
-      onReorder: (oldIdx, newIdx) {
+      onReorder: (oldIdx, newIdx) async {
         setState(() {
           if (newIdx > oldIdx) newIdx -= 1;
           final item = _clubs.removeAt(oldIdx);
           _clubs.insert(newIdx, item);
         });
+        SampleData.clubs
+          ..clear()
+          ..addAll(_clubs);
+        await SampleData.saveClubs();
       },
       itemBuilder: (_, i) => ReorderableDelayedDragStartListener(
         key: ValueKey(_clubs[i].id),
@@ -388,21 +392,15 @@ class _ClubListScreenState extends State<ClubListScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(children: [
-                        Flexible(
-                          child: Text(club.name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w500,
-                                  color: Color.fromARGB(255, 16, 40, 102),
-                                  letterSpacing: -0.4,
-                                  height: 1.05)),
-                        ),
-                        const SizedBox(width: 8),
-                        _payBadge(club.payStatus),
-                      ]),
+                      Text(club.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w500,
+                              color: Color.fromARGB(255, 16, 40, 102),
+                              letterSpacing: -0.4,
+                              height: 1.05)),
                       const SizedBox(height: 5),
                       _personRow(
                           label: '회장',
@@ -625,37 +623,6 @@ class _ClubListScreenState extends State<ClubListScreen> {
                   letterSpacing: -0.3)),
         ]),
       );
-
-  Widget _payBadge(ClubPayStatus status) {
-    final cfg = switch (status) {
-      ClubPayStatus.fullyPaid => (
-          bg: const Color(0xFFDDF5E8),
-          fg: _secondary,
-          label: '완납'
-        ),
-      ClubPayStatus.partialPaid => (
-          bg: const Color(0xFFFEF3C7),
-          fg: const Color(0xFFB45309),
-          label: '일부'
-        ),
-      ClubPayStatus.unpaid => (
-          bg: const Color(0xFFFEE2E2),
-          fg: const Color(0xFFB91C1C),
-          label: '미납'
-        ),
-    };
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-      decoration:
-          BoxDecoration(color: cfg.bg, borderRadius: BorderRadius.circular(6)),
-      child: Text(cfg.label,
-          style: TextStyle(
-              fontSize: 10.5,
-              fontWeight: FontWeight.w800,
-              color: cfg.fg,
-              letterSpacing: -0.2)),
-    );
-  }
 
   Color _gc(String g) {
     switch (g) {

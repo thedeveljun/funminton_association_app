@@ -171,7 +171,7 @@ class FeeClubRow extends StatelessWidget {
       badgeFg = const Color(0xFFB7791F);
       badgeLabel = '일부';
     } else {
-      cardBg = const Color(0xFFFFFAFA);
+      cardBg = const Color(0xFFF1F2F5);
       borderColor = const Color(0xFFE8A0A0);
       badgeBg = const Color(0xFFFFEBEB);
       badgeFg = kExpenseIcon;

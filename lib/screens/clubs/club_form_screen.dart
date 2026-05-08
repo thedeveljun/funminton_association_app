@@ -89,6 +89,8 @@ class _ClubFormScreenState extends State<ClubFormScreen> {
       presidentPhone: _presidentPhoneCtrl.text.trim(),
       secretaryName: _secretaryNameCtrl.text.trim(),
       secretaryPhone: _secretaryPhoneCtrl.text.trim(),
+      region: widget.initial?.region ?? '',
+      foundedAt: widget.initial?.foundedAt ?? '',
       venue: _venueCtrl.text.trim(),
       practiceDay: _dayCtrl.text.trim(),
       practiceTime: _timeCtrl.text.trim(),
@@ -125,7 +127,7 @@ class _ClubFormScreenState extends State<ClubFormScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _field('클럽명', ctrl: _nameCtrl, hint: '예: 서울시배드민턴협회'),
+            _field('클럽명', ctrl: _nameCtrl, hint: '예: 한국배드민턴클럽'),
             const SizedBox(height: 12),
             Row(children: [
               Expanded(

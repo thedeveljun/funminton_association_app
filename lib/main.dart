@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'core/constants/app_config.dart';
 import 'core/theme/app_theme.dart';
 import 'screens/auth/root_gate.dart';
 import 'services/auth_service.dart';
 import 'services/sample_data.dart';
+import 'services/storage_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -17,6 +19,11 @@ void main() async {
   await SampleData.loadFromStorage();
   final fixed = await SampleData.repairBrokenAges();
   debugPrint('[migration] 잘못된 나이 ${fixed}명 복구');
+
+  // 협회별 협회비 단가 (저장값이 있으면 적용)
+  final savedFeeUnit = await StorageService.loadPlayerFeeUnit();
+  if (savedFeeUnit != null) AppConfig.playerFeeUnit = savedFeeUnit;
+
   await AuthService.init();
 
   runApp(const BadmintonAssociationApp());

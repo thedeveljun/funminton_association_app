@@ -106,19 +106,26 @@ class SampleData {
   static Future<void> saveDonations() => StorageService.saveDonations(
       donations.where((d) => _isUserId(d.id)).toList());
 
-  /// 음수/비정상 나이를 birthDate 로부터 다시 계산해 보정.
+  /// 음수/비정상 나이 → birthDate 로부터 재계산.
+  /// 비표준 birthDate(예: '1998-11-27') → 6자리 YYMMDD 표준형으로 정규화.
   /// 앱 시작 시 1회만 호출.
   static Future<int> repairBrokenAges() async {
     int fixed = 0;
     for (var i = 0; i < players.length; i++) {
       final p = players[i];
-      if (p.age >= 0 && p.age <= 120) continue;
+      final normBd = Player.normalizeBirthDate(p.birthDate);
+      final ageOk = p.age >= 0 && p.age <= 120;
+      final bdOk = p.birthDate.isEmpty || p.birthDate == normBd;
+      if (ageOk && bdOk) continue;
+      final newBd = normBd.isEmpty && p.birthDate.isNotEmpty
+          ? p.birthDate
+          : normBd;
       final newAge = Player.calcAgeFromBirthDate(p.birthDate);
       players[i] = Player(
         id: p.id,
         name: p.name,
         gender: p.gender,
-        birthDate: p.birthDate,
+        birthDate: newBd,
         grade: p.grade,
         clubId: p.clubId,
         clubName: p.clubName,

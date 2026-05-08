@@ -119,14 +119,12 @@ class _PlayerFormScreenState extends State<PlayerFormScreen> {
       return;
     }
 
-    // 나이 계산
-    int age = widget.initial?.age ?? 0;
-    final bd = _birthCtrl.text.trim();
-    if (bd.length >= 2) {
-      final yy = int.tryParse(bd.substring(0, 2)) ?? 0;
-      final fullYear = yy <= 25 ? 2000 + yy : 1900 + yy;
-      age = DateTime.now().year - fullYear;
-    }
+    // 생년월일 정규화 + 나이 계산 (다양한 포맷 허용)
+    final bdRaw = _birthCtrl.text.trim();
+    final bd = Player.normalizeBirthDate(bdRaw);
+    final age = bdRaw.isEmpty
+        ? (widget.initial?.age ?? 0)
+        : Player.calcAgeFromBirthDate(bdRaw);
 
     // 클럽 정보 가져오기
     final club = SampleData.clubs.firstWhere(
@@ -188,10 +186,10 @@ class _PlayerFormScreenState extends State<PlayerFormScreen> {
           const SizedBox(height: 10),
           Row(children: [
             Expanded(
-                child: _field('생년월일 6자리',
+                child: _field('생년월일',
                     ctrl: _birthCtrl,
-                    hint: '예: 980101',
-                    type: TextInputType.number)),
+                    hint: '예: 981127, 98-11-27, 1998.11.27',
+                    type: TextInputType.text)),
             const SizedBox(width: 10),
             Expanded(
                 child: _drop('급수', _gradeOptions, _grade,

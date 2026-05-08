@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import '../../core/theme/app_colors.dart';
-import '../../models/match.dart';
+import '../../../core/theme/app_colors.dart';
+import '../../../models/match.dart';
 
 class MatchCard extends StatelessWidget {
   final Match match;
@@ -12,8 +12,6 @@ class MatchCard extends StatelessWidget {
     switch (match.type) {
       case MatchType.sameGrade:
         return const Color(0xFFBEE3F8);
-      case MatchType.balanced:
-        return const Color(0xFFC6F6D5);
       case MatchType.free:
         return const Color(0xFFFEFCBF);
     }
@@ -23,8 +21,6 @@ class MatchCard extends StatelessWidget {
     switch (match.type) {
       case MatchType.sameGrade:
         return const Color(0xFF1A365D);
-      case MatchType.balanced:
-        return const Color(0xFF1C4532);
       case MatchType.free:
         return const Color(0xFF744210);
     }

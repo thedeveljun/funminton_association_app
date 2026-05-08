@@ -1,7 +1,13 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:open_filex/open_filex.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import '../../core/theme/app_colors.dart';
 import '../../models/admin_records.dart';
 import '../../services/sample_data.dart';
+import 'doc_send_sheet.dart';
 import 'notice_sms_sheet.dart';
 
 const _adminInk = Color(0xFF0D1B3E);
@@ -136,6 +142,25 @@ class _AdminScreenState extends State<AdminScreen>
     if (!await _confirmDelete(d.title)) return;
     setState(() => SampleData.docs.removeWhere((x) => x.id == d.id));
     await SampleData.saveDocs();
+    // 첨부 파일도 함께 정리 (앱 documents/docs 내부일 때만)
+    if (d.filePath.isNotEmpty) {
+      try {
+        final f = File(d.filePath);
+        if (await f.exists()) await f.delete();
+      } catch (_) {/* 무시 */}
+    }
+  }
+
+  Future<void> _sendDoc(OfficialDoc d) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => DocSendSheet(doc: d),
+    );
   }
 
   Future<bool> _confirmDelete(String title) async {
@@ -247,7 +272,11 @@ class _AdminScreenState extends State<AdminScreen>
             onSms: _smsNotice,
           ),
           _BoardList(onTap: _editBoard, onDelete: _deleteBoard),
-          _DocumentList(onTap: _editDoc, onDelete: _deleteDoc),
+          _DocumentList(
+            onTap: _editDoc,
+            onDelete: _deleteDoc,
+            onSend: _sendDoc,
+          ),
         ],
       ),
     );
@@ -460,7 +489,12 @@ class _BoardList extends StatelessWidget {
 class _DocumentList extends StatelessWidget {
   final ValueChanged<OfficialDoc> onTap;
   final ValueChanged<OfficialDoc> onDelete;
-  const _DocumentList({required this.onTap, required this.onDelete});
+  final ValueChanged<OfficialDoc> onSend;
+  const _DocumentList({
+    required this.onTap,
+    required this.onDelete,
+    required this.onSend,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -472,6 +506,7 @@ class _DocumentList extends StatelessWidget {
       itemBuilder: (_, i) {
         final d = items[i];
         final alt = i.isOdd;
+        final hasFile = d.filePath.isNotEmpty;
         return InkWell(
           onTap: () => onTap(d),
           onLongPress: () => onDelete(d),
@@ -490,11 +525,13 @@ class _DocumentList extends StatelessWidget {
                   color: const Color(0xFFE0E7FF),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: const Center(
+                child: Center(
                   child: Icon(
-                    Icons.mail_outline_rounded,
+                    hasFile
+                        ? Icons.attach_file_rounded
+                        : Icons.mail_outline_rounded,
                     size: 22,
-                    color: Color(0xFF4F46E5),
+                    color: const Color(0xFF4F46E5),
                   ),
                 ),
               ),
@@ -521,14 +558,63 @@ class _DocumentList extends StatelessWidget {
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis),
                     ],
+                    if (hasFile) ...[
+                      const SizedBox(height: 4),
+                      _attachmentChip(d.fileName, d.filePath),
+                    ],
                   ],
                 ),
+              ),
+              IconButton(
+                tooltip: '클럽 회장·총무에게 SMS 발송',
+                icon: const Icon(Icons.sms_rounded,
+                    color: AppColors.primaryMid, size: 20),
+                onPressed: () => onSend(d),
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints:
+                    const BoxConstraints(minWidth: 32, minHeight: 32),
               ),
               const Icon(Icons.chevron_right, color: AppColors.gray3, size: 18),
             ]),
           ),
         );
       },
+    );
+  }
+
+  Widget _attachmentChip(String name, String path) {
+    return GestureDetector(
+      onTap: () => OpenFilex.open(path),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: const Color(0xFFEFF6FF),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: const Color(0xFFBFDBFE)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.insert_drive_file_rounded,
+                size: 12, color: Color(0xFF2563EB)),
+            const SizedBox(width: 4),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 200),
+              child: Text(
+                name.isEmpty ? '첨부 파일' : name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF1E3A8A),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -908,8 +994,12 @@ class _DocFormState extends State<_DocForm> {
   late final TextEditingController _toCtrl;
   late final TextEditingController _contentCtrl;
   String _date = '';
+  String _filePath = '';
+  String _fileName = '';
+  bool _picking = false;
 
   bool get _isEdit => widget.initial != null;
+  bool get _hasFile => _filePath.isNotEmpty;
 
   @override
   void initState() {
@@ -919,6 +1009,8 @@ class _DocFormState extends State<_DocForm> {
     _toCtrl = TextEditingController(text: d?.to ?? '');
     _contentCtrl = TextEditingController(text: d?.content ?? '');
     _date = d?.date ?? DateTime.now().toIso8601String().substring(0, 10);
+    _filePath = d?.filePath ?? '';
+    _fileName = d?.fileName ?? '';
   }
 
   @override
@@ -927,6 +1019,60 @@ class _DocFormState extends State<_DocForm> {
     _toCtrl.dispose();
     _contentCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickFile() async {
+    if (_picking) return;
+    setState(() => _picking = true);
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.any,
+        withData: false,
+      );
+      if (result == null || result.files.isEmpty) return;
+      final picked = result.files.first;
+      if (picked.path == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('파일을 읽을 수 없습니다.')),
+          );
+        }
+        return;
+      }
+      // 앱 documents/docs 폴더로 복사하여 영속화
+      final appDir = await getApplicationDocumentsDirectory();
+      final docsDir = Directory(p.join(appDir.path, 'docs'));
+      if (!await docsDir.exists()) await docsDir.create(recursive: true);
+      final ts = DateTime.now().millisecondsSinceEpoch;
+      final safeName = picked.name.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
+      final dest = File(p.join(docsDir.path, '${ts}_$safeName'));
+      await File(picked.path!).copy(dest.path);
+      if (!mounted) return;
+      setState(() {
+        _filePath = dest.path;
+        _fileName = picked.name;
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('파일 첨부 실패: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _picking = false);
+    }
+  }
+
+  Future<void> _openFile() async {
+    if (!_hasFile) return;
+    await OpenFilex.open(_filePath);
+  }
+
+  void _removeFile() {
+    setState(() {
+      _filePath = '';
+      _fileName = '';
+    });
   }
 
   void _submit() {
@@ -945,6 +1091,8 @@ class _DocFormState extends State<_DocForm> {
           date: _date,
           to: _toCtrl.text.trim(),
           content: _contentCtrl.text.trim(),
+          filePath: _filePath,
+          fileName: _fileName,
         ));
   }
 
@@ -979,9 +1127,78 @@ class _DocFormState extends State<_DocForm> {
           ),
         ]),
         const SizedBox(height: 8),
+        _label('첨부 파일'),
+        _attachmentRow(),
+        const SizedBox(height: 8),
         _label('내용'),
         _field(_contentCtrl, hint: '내용 입력', maxLines: 4),
       ],
+    );
+  }
+
+  Widget _attachmentRow() {
+    if (!_hasFile) {
+      return OutlinedButton.icon(
+        onPressed: _picking ? null : _pickFile,
+        icon: _picking
+            ? const SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.attach_file, size: 18),
+        label: Text(_picking ? '불러오는 중…' : '파일 선택 (PDF/이미지/문서)'),
+        style: OutlinedButton.styleFrom(
+          minimumSize: const Size.fromHeight(36),
+          alignment: Alignment.centerLeft,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+        ),
+      );
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEFF6FF),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFBFDBFE)),
+      ),
+      child: Row(children: [
+        const Icon(Icons.insert_drive_file_rounded,
+            size: 18, color: Color(0xFF2563EB)),
+        const SizedBox(width: 8),
+        Expanded(
+          child: GestureDetector(
+            onTap: _openFile,
+            child: Text(
+              _fileName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF1E3A8A),
+                decoration: TextDecoration.underline,
+              ),
+            ),
+          ),
+        ),
+        IconButton(
+          tooltip: '교체',
+          onPressed: _picking ? null : _pickFile,
+          icon: const Icon(Icons.swap_horiz, size: 18),
+          visualDensity: VisualDensity.compact,
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+        ),
+        IconButton(
+          tooltip: '제거',
+          onPressed: _removeFile,
+          icon: const Icon(Icons.close, size: 18, color: AppColors.red),
+          visualDensity: VisualDensity.compact,
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+        ),
+      ]),
     );
   }
 }

@@ -557,10 +557,10 @@ class _ScheduleFormState extends State<_ScheduleForm> {
                 style: const TextStyle(fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
             _label('주최'),
-            _field(_hostCtrl, hint: '예: 대한배드민턴협회'),
+            _field(_hostCtrl, hint: '예: 한국배드민턴협회'),
             const SizedBox(height: 8),
             _label('장소'),
-            _field(_locCtrl, hint: '예: 경기도 수원시 / 수원실내체육관'),
+            _field(_locCtrl, hint: '예: 한국시 / 한국시민체육관'),
             const SizedBox(height: 8),
             Row(children: [
               Expanded(

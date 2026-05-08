@@ -19,8 +19,10 @@ class PlayerListScreen extends StatefulWidget {
 }
 
 class _PlayerListScreenState extends State<PlayerListScreen> {
-  /// 기본 급수 라벨 (삭제 불가)
+  /// 기본 급수 라벨 (삭제 불가) — PlayerFormScreen._builtinGrades 와 동일하게 유지
   static const List<String> _defaultGrades = [
+    '자강조',
+    'S조',
     'A조',
     'B조',
     'C조',
@@ -35,22 +37,22 @@ class _PlayerListScreenState extends State<PlayerListScreen> {
   final Set<String> _activeGrades = {..._defaultGrades};
 
   String _genderFilter = '전체';
-  /// '연령별' 정렬 (나이 오름차순)
-  bool _sortByAge = false;
-  /// '급수별' 정렬 (A조 → ... → 자강조)
+  /// '클럽별' 정렬 (클럽명 가나다 순, 그룹 내 나이 오름차순)
+  bool _sortByClub = false;
+  /// '급수별' 정렬 (자강조 → S조 → A조 → … → 초심조, 그룹 내 나이 오름차순)
   bool _sortByGrade = false;
   final _ctrl = TextEditingController();
 
-  /// '급수별' 정렬용 순서 — 사용자 요청에 따라 A조가 가장 앞.
+  /// '급수별' 정렬용 순서 — 자강조 → S조 → A조 → B조 → C조 → D조 → 초심조.
   /// 알 수 없는 급수는 9999 로 정렬 끝으로 밀어냄.
   static const Map<String, int> _gradeSortOrder = {
-    'A조': 0,
-    'B조': 1,
-    'C조': 2,
-    'D조': 3,
-    '초심조': 4,
-    'S조': 5,
-    '자강조': 6,
+    '자강조': 0,
+    'S조': 1,
+    'A조': 2,
+    'B조': 3,
+    'C조': 4,
+    'D조': 5,
+    '초심조': 6,
   };
 
   int _gradeSortIndex(String g) => _gradeSortOrder[g] ?? 9999;
@@ -77,6 +79,12 @@ class _PlayerListScreenState extends State<PlayerListScreen> {
           ..._defaultGrades,
           ...saved.where((g) => !_defaultGrades.contains(g)),
         ];
+      }
+      // 데이터에만 존재하는 미등록 급수도 칩에 보강 (엑셀 업로드 legacy 등)
+      for (final p in SampleData.players) {
+        if (p.grade.isNotEmpty && !_allGrades.contains(p.grade)) {
+          _allGrades.add(p.grade);
+        }
       }
       _activeGrades.addAll(_allGrades);
     });
@@ -143,6 +151,49 @@ class _PlayerListScreenState extends State<PlayerListScreen> {
     await _persistCustomGrades();
   }
 
+  Future<void> _confirmDeleteAllPlayers() async {
+    final total = SampleData.players.length;
+    if (total == 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('삭제할 선수가 없습니다.')),
+      );
+      return;
+    }
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('전체 삭제',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+        content: Text(
+          '등록된 $total명의 선수를 모두 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.',
+          style: const TextStyle(fontSize: 14),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('취소'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('전체 삭제',
+                style: TextStyle(
+                    color: Color(0xFFB91C1C), fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    SampleData.players.clear();
+    await SampleData.savePlayers();
+    if (mounted) {
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$total명을 모두 삭제했습니다.')),
+      );
+    }
+  }
+
   List<Player> get _filtered {
     var list = SampleData.players.toList();
     list = list.where((p) => _activeGrades.contains(p.grade)).toList();
@@ -156,12 +207,17 @@ class _PlayerListScreenState extends State<PlayerListScreen> {
           .toList();
     }
     list.sort((a, b) {
-      // 둘 다 켜지면: 급수 우선 → 그 안에서 나이 오름차순 → 이름순
+      // 둘 다 켜지면: 클럽 → 급수 → 그 안에서 나이 오름차순 → 이름순
+      if (_sortByClub) {
+        final c = a.clubName.compareTo(b.clubName); // 가나다 순
+        if (c != 0) return c;
+      }
       if (_sortByGrade) {
         final c = _gradeSortIndex(a.grade).compareTo(_gradeSortIndex(b.grade));
         if (c != 0) return c;
       }
-      if (_sortByAge) {
+      // 클럽별/급수별 중 하나라도 켜져 있으면 그룹 내 나이 오름차순
+      if (_sortByClub || _sortByGrade) {
         final c = a.age.compareTo(b.age);
         if (c != 0) return c;
       }
@@ -219,6 +275,27 @@ class _PlayerListScreenState extends State<PlayerListScreen> {
             icon: const Icon(Icons.add, size: 18),
             label:
                 const Text('등록', style: TextStyle(fontWeight: FontWeight.w700)),
+          ),
+          PopupMenuButton<String>(
+            tooltip: '더보기',
+            icon: const Icon(Icons.more_vert, color: _searchInk),
+            onSelected: (v) {
+              if (v == 'delete_all') _confirmDeleteAllPlayers();
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: 'delete_all',
+                child: Row(children: [
+                  Icon(Icons.delete_sweep_rounded,
+                      size: 18, color: Color(0xFFB91C1C)),
+                  SizedBox(width: 8),
+                  Text('전체 삭제',
+                      style: TextStyle(
+                          color: Color(0xFFB91C1C),
+                          fontWeight: FontWeight.w700)),
+                ]),
+              ),
+            ],
           ),
         ],
       ),
@@ -287,10 +364,10 @@ class _PlayerListScreenState extends State<PlayerListScreen> {
         ),
         _GenderSortRow(
           gender: _genderFilter,
-          sortByAge: _sortByAge,
+          sortByClub: _sortByClub,
           sortByGrade: _sortByGrade,
           onGender: (v) => setState(() => _genderFilter = v),
-          onToggleAge: () => setState(() => _sortByAge = !_sortByAge),
+          onToggleClub: () => setState(() => _sortByClub = !_sortByClub),
           onToggleGrade: () => setState(() => _sortByGrade = !_sortByGrade),
         ),
         Container(
@@ -312,10 +389,14 @@ class _PlayerListScreenState extends State<PlayerListScreen> {
             itemBuilder: (ctx, i) => PlayerListItem(
               player: filtered[i],
               index: i + 1,
-              onTap: () => Navigator.push(
-                  ctx,
-                  MaterialPageRoute(
-                      builder: (_) => PlayerDetailScreen(player: filtered[i]))),
+              onTap: () async {
+                await Navigator.push(
+                    ctx,
+                    MaterialPageRoute(
+                        builder: (_) =>
+                            PlayerDetailScreen(player: filtered[i])));
+                if (mounted) setState(() {});
+              },
             ),
           ),
         ),
@@ -559,24 +640,24 @@ class _AddGradeChip extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════
-//  성별 + 정렬(연령별/급수별) 선택 — 같은 행에 묶음
+//  성별 + 정렬(클럽별/급수별) 선택 — 같은 행에 묶음
 //  · 성별: 단일선택 (블루 톤)
-//  · 정렬: 토글 단일선택 (그레이 톤). 다시 누르면 기본(이름순)
+//  · 정렬: 토글 (그레이 톤). 다시 누르면 기본(이름순)
 // ═══════════════════════════════════════════════════════
 class _GenderSortRow extends StatelessWidget {
   final String gender;
-  final bool sortByAge;
+  final bool sortByClub;
   final bool sortByGrade;
   final ValueChanged<String> onGender;
-  final VoidCallback onToggleAge;
+  final VoidCallback onToggleClub;
   final VoidCallback onToggleGrade;
 
   const _GenderSortRow({
     required this.gender,
-    required this.sortByAge,
+    required this.sortByClub,
     required this.sortByGrade,
     required this.onGender,
-    required this.onToggleAge,
+    required this.onToggleClub,
     required this.onToggleGrade,
   });
 
@@ -627,9 +708,9 @@ class _GenderSortRow extends StatelessWidget {
           }),
           const SizedBox(width: 6),
           _SortChip(
-            label: '연령별',
-            on: sortByAge,
-            onTap: onToggleAge,
+            label: '클럽별',
+            on: sortByClub,
+            onTap: onToggleClub,
           ),
           _SortChip(
             label: '급수별',

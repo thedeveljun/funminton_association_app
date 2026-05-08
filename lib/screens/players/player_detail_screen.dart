@@ -56,6 +56,36 @@ class _PlayerDetailScreenState extends State<PlayerDetailScreen> {
     }
   }
 
+  Future<void> _deletePlayer() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('선수 삭제',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+        content: Text('${_player.name} 선수를 삭제하시겠습니까?',
+            style: const TextStyle(fontSize: 14)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('취소'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('삭제',
+                style: TextStyle(
+                    color: Color(0xFFB91C1C), fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    SampleData.players.removeWhere((p) => p.id == _player.id);
+    await SampleData.savePlayers();
+    if (!mounted) return;
+    Navigator.of(context).pop(true);
+  }
+
   Future<void> _saveAwards() async {
     final idx = SampleData.players.indexWhere((p) => p.id == _player.id);
     if (idx >= 0) {
@@ -196,7 +226,13 @@ class _PlayerDetailScreenState extends State<PlayerDetailScreen> {
     return Scaffold(
       backgroundColor: AppColors.gray,
       appBar: AppBar(title: const Text('선수 상세'), actions: [
-        TextButton(onPressed: _editPlayer, child: const Text('편집'))
+        TextButton(onPressed: _editPlayer, child: const Text('편집')),
+        TextButton(
+          onPressed: _deletePlayer,
+          child: const Text('삭제',
+              style: TextStyle(
+                  color: Color(0xFFB91C1C), fontWeight: FontWeight.w700)),
+        ),
       ]),
       body: SingleChildScrollView(
         child: Column(children: [

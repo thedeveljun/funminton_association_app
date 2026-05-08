@@ -99,7 +99,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ),
               const SizedBox(height: 4),
               _label('협회명'),
-              _field(_assocCtrl, hint: '예: 과천시배드민턴협회'),
+              _field(_assocCtrl, hint: '예: 한국시배드민턴협회'),
               const SizedBox(height: 10),
               _label('회장 이름'),
               _field(_presCtrl, hint: '예: 김철수'),

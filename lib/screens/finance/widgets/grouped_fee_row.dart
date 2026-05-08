@@ -296,21 +296,21 @@ class GroupedFeeRow extends StatelessWidget {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFFFF8E1),
+                    color: const Color(0xFFFEF3C7),
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       const Icon(Icons.sticky_note_2_outlined,
-                          size: 11, color: Color(0xFFB7791F)),
+                          size: 11, color: Color(0xFF6B4F00)),
                       const SizedBox(width: 3),
                       Text(
                         '${DateTime.now().year}년 협회비',
                         style: const TextStyle(
                           fontSize: 11,
-                          color: Color(0xFF8B6914),
-                          fontWeight: FontWeight.w500,
+                          color: Color(0xFF6B4F00),
+                          fontWeight: FontWeight.w700,
                           letterSpacing: -0.2,
                           height: 1.1,
                         ),

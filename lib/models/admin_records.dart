@@ -105,6 +105,8 @@ class OfficialDoc {
   final String date;
   final String to; // 수신처
   final String content;
+  final String filePath; // 업로드된 첨부파일 절대경로 (앱 documents/docs)
+  final String fileName; // 표시용 파일 이름
 
   const OfficialDoc({
     required this.id,
@@ -112,6 +114,8 @@ class OfficialDoc {
     required this.date,
     this.to = '',
     this.content = '',
+    this.filePath = '',
+    this.fileName = '',
   });
 
   OfficialDoc copyWith({
@@ -119,6 +123,8 @@ class OfficialDoc {
     String? date,
     String? to,
     String? content,
+    String? filePath,
+    String? fileName,
   }) =>
       OfficialDoc(
         id: id,
@@ -126,6 +132,8 @@ class OfficialDoc {
         date: date ?? this.date,
         to: to ?? this.to,
         content: content ?? this.content,
+        filePath: filePath ?? this.filePath,
+        fileName: fileName ?? this.fileName,
       );
 
   Map<String, dynamic> toMap() => {
@@ -134,6 +142,8 @@ class OfficialDoc {
         'date': date,
         'to': to,
         'content': content,
+        'filePath': filePath,
+        'fileName': fileName,
       };
 
   factory OfficialDoc.fromMap(Map<String, dynamic> m) => OfficialDoc(
@@ -142,5 +152,7 @@ class OfficialDoc {
         date: (m['date'] ?? '').toString(),
         to: (m['to'] ?? '').toString(),
         content: (m['content'] ?? '').toString(),
+        filePath: (m['filePath'] ?? '').toString(),
+        fileName: (m['fileName'] ?? '').toString(),
       );
 }

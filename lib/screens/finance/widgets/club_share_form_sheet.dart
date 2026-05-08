@@ -96,7 +96,9 @@ class _ClubShareFormSheetState extends State<ClubShareFormSheet> {
     if (e != null) {
       _selectedClub = SampleData.clubs.firstWhere(
         (c) => c.id == e.clubId,
-        orElse: () => SampleData.clubs.first,
+        orElse: () => SampleData.clubs.isNotEmpty
+            ? SampleData.clubs.first
+            : const Club(id: '', name: ''),
       );
       _amountCtrl.text = _formatNumberWithCommas(e.amount.toString());
       _memoCtrl.text = e.memo;

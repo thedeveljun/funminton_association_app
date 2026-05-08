@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import '../../core/theme/app_colors.dart';
-import '../../models/match.dart';
+import '../../../core/theme/app_colors.dart';
+import '../../../models/match.dart';
 
 class ScoreInputSheet extends StatefulWidget {
   final Match match;

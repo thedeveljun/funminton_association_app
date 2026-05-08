@@ -310,7 +310,7 @@ class _TournamentFormScreenState extends State<TournamentFormScreen> {
                     style: const TextStyle(fontWeight: FontWeight.w600))),
             const SizedBox(height: 6),
             Row(children: [
-              Expanded(child: _field('지역', _f(_regionCtrl, hint: '예: 과천시'))),
+              Expanded(child: _field('지역', _f(_regionCtrl, hint: '예: 한국시'))),
               const SizedBox(width: 8),
               Expanded(child: _field('대회 분류', _typeDropdown())),
             ]),
@@ -848,12 +848,12 @@ class _TournamentFormScreenState extends State<TournamentFormScreen> {
           const SizedBox(height: 6),
           _venueRow(
             label: '대회장소',
-            child: _f(_venueNameCtrls[i], hint: '예: 과천시민체육관'),
+            child: _f(_venueNameCtrls[i], hint: '예: 한국시민체육관'),
           ),
           const SizedBox(height: 6),
           _venueRow(
             label: '위치',
-            child: _f(_venueAddrCtrls[i], hint: '예: 경기도 과천시 ...'),
+            child: _f(_venueAddrCtrls[i], hint: '예: 한국 한국시 ...'),
             leadingIcon: Icons.place_outlined,
           ),
           const SizedBox(height: 6),

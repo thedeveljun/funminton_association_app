@@ -1029,7 +1029,7 @@ class _ShareTile extends StatelessWidget {
         margin: const EdgeInsets.only(bottom: 6),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
-          color: paid ? Colors.white : const Color(0xFFFFFAFA),
+          color: paid ? Colors.white : const Color(0xFFF1F2F5),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
               color: paid ? const Color(0xFFD5DAE1) : const Color(0xFFE8A0A0),

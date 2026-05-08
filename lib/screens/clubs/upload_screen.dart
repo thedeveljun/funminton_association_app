@@ -436,8 +436,9 @@ class _UploadScreenState extends State<UploadScreen> {
           continue;
         }
 
-        final bd = _getValue(row, ['생년월일']);
-        final age = Player.calcAgeFromBirthDate(bd);
+        final bdRaw = _getValue(row, ['생년월일']);
+        final bd = Player.normalizeBirthDate(bdRaw);
+        final age = Player.calcAgeFromBirthDate(bdRaw);
 
         final club =
             SampleData.clubs.where((c) => c.name == clubName).firstOrNull;

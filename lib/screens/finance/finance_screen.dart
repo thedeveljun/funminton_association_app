@@ -11,6 +11,7 @@
 // 모든 자식 위젯/헬퍼/상수는 widgets/widgets.dart (barrel)에서 가져옵니다.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/constants/app_config.dart';
 import '../../models/club.dart';
@@ -20,6 +21,7 @@ import '../../models/player.dart';
 import '../../models/player_fee_payment.dart';
 import '../../models/tournament.dart';
 import '../../services/sample_data.dart';
+import '../../services/storage_service.dart';
 import 'widgets/widgets.dart';
 
 class FinanceScreen extends StatefulWidget {
@@ -525,6 +527,81 @@ class _FinanceScreenState extends State<FinanceScreen>
     await SampleData.saveTransactions();
   }
 
+  // 협회비 단가 설정 다이얼로그 (협회별로 다른 정책 반영)
+  Future<void> _showFeeUnitSettings() async {
+    String _withCommas(int n) => n.toString().replaceAllMapped(
+          RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+          (m) => '${m[1]},',
+        );
+    final ctrl = TextEditingController(
+        text: _withCommas(AppConfig.playerFeeUnit));
+    final saved = await showDialog<int>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('협회비 단가 설정',
+            style: TextStyle(
+                fontSize: 16, fontWeight: FontWeight.w800, color: kInk)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('선수 1인당 협회비 (원)',
+                style: TextStyle(fontSize: 13, color: Color(0xFF555555))),
+            const SizedBox(height: 8),
+            TextField(
+              controller: ctrl,
+              autofocus: true,
+              keyboardType: TextInputType.number,
+              inputFormatters: [_ThousandsFormatter()],
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+              decoration: InputDecoration(
+                suffixText: '원',
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12, vertical: 10),
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8)),
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text('* 신규 납부 거래부터 적용됩니다. 기존 거래 금액은 변경되지 않습니다.',
+                style: TextStyle(fontSize: 11, color: Color(0xFF888888))),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('취소'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final digits = ctrl.text.replaceAll(RegExp(r'[^0-9]'), '');
+              final v = int.tryParse(digits);
+              if (v == null || v <= 0) {
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  const SnackBar(content: Text('1 이상의 금액을 입력하세요.')),
+                );
+                return;
+              }
+              Navigator.pop(ctx, v);
+            },
+            child: const Text('저장'),
+          ),
+        ],
+      ),
+    );
+
+    if (saved != null) {
+      AppConfig.playerFeeUnit = saved;
+      await StorageService.savePlayerFeeUnit(saved);
+      if (mounted) {
+        setState(() {});
+        _snack('협회비 단가를 ${fmtAmt(saved)}으로 변경했습니다.');
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
         backgroundColor: kBgPage,
@@ -551,6 +628,11 @@ class _FinanceScreenState extends State<FinanceScreen>
             ),
           ),
           actions: [
+            IconButton(
+              onPressed: _showFeeUnitSettings,
+              tooltip: '협회비 단가 설정',
+              icon: const Icon(Icons.tune_rounded, size: 22, color: kAccent),
+            ),
             IconButton(
               onPressed: () => setState(() {}),
               icon: const Icon(Icons.refresh_rounded, size: 22, color: kAccent),
@@ -606,4 +688,25 @@ class _FinanceScreenState extends State<FinanceScreen>
           ],
         ),
       );
+}
+
+/// 입력 중 천단위 콤마 자동 삽입 (예: 15000 → 15,000)
+class _ThousandsFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+      TextEditingValue oldValue, TextEditingValue newValue) {
+    final digits = newValue.text.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.isEmpty) {
+      return const TextEditingValue(
+          text: '', selection: TextSelection.collapsed(offset: 0));
+    }
+    final formatted = int.parse(digits).toString().replaceAllMapped(
+          RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+          (m) => '${m[1]},',
+        );
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: formatted.length),
+    );
+  }
 }

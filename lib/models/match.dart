@@ -3,7 +3,6 @@ import 'player.dart';
 /// 경기 유형
 enum MatchType {
   sameGrade('동일급수'),
-  balanced('균형급수'),
   free('자유');
 
   final String label;

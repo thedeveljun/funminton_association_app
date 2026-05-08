@@ -81,8 +81,13 @@ class PlayerListItem extends StatelessWidget {
   final Player player;
   final int index;
   final VoidCallback? onTap;
+  final VoidCallback? onDelete;
   const PlayerListItem(
-      {super.key, required this.player, required this.index, this.onTap});
+      {super.key,
+      required this.player,
+      required this.index,
+      this.onTap,
+      this.onDelete});
 
   @override
   Widget build(BuildContext context) => InkWell(
@@ -135,6 +140,19 @@ class PlayerListItem extends StatelessWidget {
                   ])),
               // 급수 칩만 표시 (전화번호 제거 + 세로 중앙 정렬)
               Center(child: GradePastelChip(player.grade)),
+              if (onDelete != null) ...[
+                const SizedBox(width: 4),
+                IconButton(
+                  onPressed: onDelete,
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints:
+                      const BoxConstraints(minWidth: 32, minHeight: 32),
+                  icon: const Icon(Icons.delete_outline,
+                      size: 20, color: Color(0xFFB91C1C)),
+                  tooltip: '삭제',
+                ),
+              ],
             ],
           ),
         ),
