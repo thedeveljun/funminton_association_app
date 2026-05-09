@@ -325,11 +325,8 @@ class _TournamentFormScreenState extends State<TournamentFormScreen> {
 
             const SizedBox(height: 16),
             // ── 경기 정보 ─────────────────────
+            // 종별·대상 급수는 대회 생성 후 [설정] 탭에서 편집.
             _section('경기 정보'),
-            _field('종별', _eventChips()),
-            const SizedBox(height: 6),
-            _field('대상 급수', _gradeChips()),
-            const SizedBox(height: 6),
             Row(children: [
               Expanded(
                   child: _field('참가비 (원)',
@@ -758,50 +755,12 @@ class _TournamentFormScreenState extends State<TournamentFormScreen> {
         ),
       );
 
-  // ── 경기장 섹션 (다중 입력) ───────────────
+  // ── 경기장 섹션 (대회 생성 시 1개만 입력, 추가는 설정 탭에서) ───
   Widget _venueSection() {
     final count = _venueNameCtrls.length;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // 사용 경기장 수 카운터
-        const Text('사용 경기장 수',
-            style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: AppColors.text2)),
-        const SizedBox(height: 4),
-        Container(
-          height: 40,
-          padding: const EdgeInsets.symmetric(horizontal: 4),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: const Color(0xFFD8DEE8)),
-          ),
-          child: Row(children: [
-            _stepperBtn(
-              icon: Icons.remove,
-              enabled: count > 1,
-              onTap: () => setState(() => _removeVenueRow()),
-            ),
-            Expanded(
-              child: Center(
-                child: Text('$count 개소',
-                    style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.text)),
-              ),
-            ),
-            _stepperBtn(
-              icon: Icons.add,
-              enabled: true,
-              onTap: () => setState(() => _addVenueRow()),
-            ),
-          ]),
-        ),
-        const SizedBox(height: 10),
         // 경기장 카드 리스트
         for (var i = 0; i < count; i++) ...[
           _venueCard(i),

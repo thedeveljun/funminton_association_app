@@ -111,22 +111,24 @@ class Match {
       );
 }
 
-/// 연령·급수별 경기장 배정 키
+/// 종별·연령·급수별 경기장 배정 키
 class AssignKey {
+  final String event; // '혼복'|'남복'|'여복'|'단식'
   final String decadeKey; // '20','30','40','50','60','70'
   final String grade; // 'A','B','C','D','초심'
 
-  const AssignKey(this.decadeKey, this.grade);
+  const AssignKey(this.event, this.decadeKey, this.grade);
 
   @override
   bool operator ==(Object other) =>
       other is AssignKey &&
+      other.event == event &&
       other.decadeKey == decadeKey &&
       other.grade == grade;
 
   @override
-  int get hashCode => Object.hash(decadeKey, grade);
+  int get hashCode => Object.hash(event, decadeKey, grade);
 
   @override
-  String toString() => '$decadeKey-$grade';
+  String toString() => '$event-$decadeKey-$grade';
 }

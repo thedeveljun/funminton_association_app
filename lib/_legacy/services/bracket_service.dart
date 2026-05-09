@@ -175,7 +175,8 @@ class BracketService {
   ) {
     // assignMap 의 grade 키는 '조' 없는 짧은 라벨('A','B','C','D','초심').
     // Player.grade 는 'A조'/'B조'/... 라서 gradeShort 로 정규화해야 매칭됨.
-    final key = AssignKey(p.decadeKey, p.gradeShort);
+    // legacy: event 차원 없이 (decadeKey, grade) 만 사용 — 신규 키와 매칭 안 됨.
+    final key = AssignKey('', p.decadeKey, p.gradeShort);
     return assignMap[key] ?? venues.first.id;
   }
 

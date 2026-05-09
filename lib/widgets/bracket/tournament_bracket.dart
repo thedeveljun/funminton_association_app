@@ -110,7 +110,7 @@ class TournamentBracketPainter extends CustomPainter {
             text: label,
             style: const TextStyle(
               color: Color(0xFF1E3A8A),
-              fontSize: 10,
+              fontSize: 11,
               fontWeight: FontWeight.w500,
             ),
           ),
@@ -126,7 +126,20 @@ class TournamentBracketPainter extends CustomPainter {
       ..style = PaintingStyle.stroke;
 
     for (final s in slots) {
-      if (s.round == 0 || s.round >= rounds) continue;
+      if (s.round == 0) continue;
+      if (s.round == rounds) {
+        // 우승 슬롯 — 결승 슬롯(round-1, slot=0) 에서 라인 1개
+        final c = slots
+            .where((c) => c.round == rounds - 1 && c.slot == 0)
+            .toList();
+        if (c.isEmpty) continue;
+        canvas.drawLine(
+          Offset(c.first.x + c.first.width, c.first.y + 12),
+          Offset(s.x, s.y + 12),
+          linePaint,
+        );
+        continue;
+      }
       final c1 = slots.where((c) =>
           c.round == s.round - 1 && c.slot == s.slot * 2).toList();
       final c2 = slots.where((c) =>
@@ -145,10 +158,42 @@ class TournamentBracketPainter extends CustomPainter {
       );
     }
 
+    // 우승 슬롯 — 골드 박스 + '우승' 라벨
+    final winnerSlots = slots.where((s) => s.round == rounds).toList();
+    if (winnerSlots.isNotEmpty) {
+      final w = winnerSlots.first;
+      final winnerRect = Rect.fromLTWH(w.x, w.y, w.width, 24);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(winnerRect, const Radius.circular(3)),
+        Paint()
+          ..color = const Color(0xFFFEF3C7)
+          ..style = PaintingStyle.fill,
+      );
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(winnerRect, const Radius.circular(3)),
+        Paint()
+          ..color = const Color(0xFFD97706)
+          ..strokeWidth = 0.8
+          ..style = PaintingStyle.stroke,
+      );
+      final wp = TextPainter(
+        text: const TextSpan(
+          text: '우승',
+          style: TextStyle(
+            color: Color(0xFF92400E),
+            fontSize: 12,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      wp.paint(canvas, Offset(w.x + 6, w.y + 6));
+    }
+
     final tp = TextPainter(
       text: const TextSpan(
         text: '예선 1위 성적순으로 부전승 자리 배치',
-        style: TextStyle(color: Color(0xFF6B7280), fontSize: 10),
+        style: TextStyle(color: Color(0xFF6B7280), fontSize: 11),
       ),
       textDirection: TextDirection.ltr,
     )..layout();

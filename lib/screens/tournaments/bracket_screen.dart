@@ -58,6 +58,9 @@ class _BracketScreenState extends State<BracketScreen>
   /// 비어있으면 BottomSheet 에 종목 요약 라인 미노출.
   Map<String, int> _entryEventCounts = const {};
 
+  /// 사용자 정의 급수 (자강조 등). 표준 급수와 합쳐 칩으로 노출.
+  List<String> _customGrades = const [];
+
   /// "전체" 제외, 실제 연령 그룹 라벨 목록
   List<String> get _ageGroupLabels =>
       _tournament.ageGroups.where((l) => l != '전체').toList();
@@ -116,11 +119,69 @@ class _BracketScreenState extends State<BracketScreen>
       ];
     }
 
-    for (final label in _ageGroupLabels) {
-      for (final g in _allGrades) {
-        _assignMap[AssignKey(label, g)] = _venues.first.id;
+    for (final ev in Tournament.allEventTypes) {
+      for (final label in _ageGroupLabels) {
+        for (final g in _allGrades) {
+          _assignMap[AssignKey(ev, label, g)] = _venues.first.id;
+        }
       }
     }
+
+    _loadCustomGrades();
+  }
+
+  Future<void> _loadCustomGrades() async {
+    final saved = await StorageService.loadCustomGrades();
+    if (!mounted) return;
+    setState(() => _customGrades = saved);
+  }
+
+  /// 표준 + 사용자 정의 급수 (표시 순서 보존).
+  List<String> get _allTargetGrades =>
+      [...Tournament.allTargetGrades, ..._customGrades];
+
+  /// 종별(혼복/남복/여복) 토글. 마지막 1개는 끄지 못하도록 보장.
+  void _toggleEvent(String e) {
+    final cur = _tournament.eventTypeList.toSet();
+    if (cur.contains(e)) {
+      if (cur.length <= 1) return;
+      cur.remove(e);
+    } else {
+      cur.add(e);
+    }
+    final ordered =
+        Tournament.allEventTypes.where(cur.contains).join(',');
+    setState(() {
+      _tournament = _tournament.copyWith(eventType: ordered);
+    });
+    _persistTournament();
+  }
+
+  /// 대상 급수 토글. 0개 허용 (저장 시 빈 문자열).
+  void _toggleGrade(String g) {
+    final cur = _tournament.targetGradeList.toSet();
+    if (cur.contains(g)) {
+      cur.remove(g);
+    } else {
+      cur.add(g);
+    }
+    final ordered =
+        _allTargetGrades.where(cur.contains).join(',');
+    setState(() {
+      _tournament = _tournament.copyWith(targetGrade: ordered);
+    });
+    _persistTournament();
+  }
+
+  /// '전체' 마스터 토글: 모든 급수 ON ↔ 모두 OFF.
+  void _toggleAllGrades() {
+    final cur = _tournament.targetGradeList.toSet();
+    final isAll = _allTargetGrades.every(cur.contains);
+    final next = isAll ? '' : _allTargetGrades.join(',');
+    setState(() {
+      _tournament = _tournament.copyWith(targetGrade: next);
+    });
+    _persistTournament();
   }
 
   // ── Tournament 그룹 편집 ──────────────────────────
@@ -175,6 +236,123 @@ class _BracketScreenState extends State<BracketScreen>
     });
   }
 
+  /// 새 경기장 1개 추가. 기본 4코트, 색상은 `Venue.defaultColors` 순환.
+  void _addVenue() {
+    final id = 'v${DateTime.now().millisecondsSinceEpoch}';
+    final color =
+        Venue.defaultColors[_venues.length % Venue.defaultColors.length];
+    setState(() {
+      _venues.add(Venue(
+        id: id,
+        name: '',
+        address: '',
+        courts: 4,
+        colorHex: color,
+      ));
+      _syncVenuesToTournament(debounce: false);
+    });
+  }
+
+  /// AI 자동 배정: 선택된 참가자 인원수 기반으로 경기 부하를 경기장 코트 비율에 맞춰 분산.
+  /// 각 (종별, 연령, 급수) 셀의 경기 수를 계산 → 큰 것부터 가장 부족한 경기장에 배정 (LDM).
+  void _aiAssignVenues() {
+    if (_venues.isEmpty) return;
+    final activeVs = _venues.where((v) => v.courts > 0).toList();
+    if (activeVs.isEmpty) return;
+
+    final selectedPlayers = SampleData.players
+        .where((p) => _selected.contains(p.id))
+        .toList();
+
+    final selectedEvents = _tournament.eventTypeList
+        .where(Tournament.allEventTypes.contains)
+        .toList();
+    final ages = _ageGroupLabels.where(_activeAgeGroups.contains).toList();
+    final grades = _gradeGroupLabels.where(_activeGrades.contains).toList();
+
+    final newMap = Map<AssignKey, String>.from(_assignMap);
+
+    for (final ev in selectedEvents) {
+      final isSingles = ev == '단식';
+      // 종목별 성별 필터
+      bool genderOk(Player p) {
+        if (ev == '남복') return p.gender == '남';
+        if (ev == '여복') return p.gender == '여';
+        return true; // 혼복/단식
+      }
+
+      // 셀별 경기 수 산출
+      final cells = <_AiCell>[];
+      for (final age in ages) {
+        for (final g in grades) {
+          final pool = selectedPlayers
+              .where(genderOk)
+              .where((p) => p.grade == g)
+              .where((p) => ageMatches(age, p.age, _ageGroupLabels))
+              .toList();
+          final teams = isSingles ? pool.length : pool.length ~/ 2;
+          final matches = teams >= 3 ? (teams * (teams - 1)) ~/ 2 : 0;
+          cells.add(_AiCell(age: age, grade: g, matches: matches));
+        }
+      }
+
+      // 경기 수 내림차순 정렬 (큰 것부터 분배)
+      cells.sort((a, b) => b.matches.compareTo(a.matches));
+
+      // 코트 비율 기반 목표 부하
+      final totalCourts =
+          activeVs.fold<int>(0, (s, v) => s + v.courts);
+      final totalMatches =
+          cells.fold<int>(0, (s, c) => s + c.matches);
+      final venueLoad = <String, int>{
+        for (final v in activeVs) v.id: 0
+      };
+      final venueTarget = <String, double>{
+        for (final v in activeVs)
+          v.id: totalMatches * (v.courts / totalCourts),
+      };
+
+      for (final cell in cells) {
+        // 가장 부족한(target - load 가 가장 큰) 경기장 선택
+        Venue? best;
+        double bestSlack = -double.infinity;
+        for (final v in activeVs) {
+          final slack = venueTarget[v.id]! - venueLoad[v.id]!;
+          if (slack > bestSlack) {
+            bestSlack = slack;
+            best = v;
+          }
+        }
+        if (best != null) {
+          newMap[AssignKey(ev, cell.age, cell.grade)] = best.id;
+          venueLoad[best.id] = venueLoad[best.id]! + cell.matches;
+        }
+      }
+    }
+
+    setState(() {
+      _assignMap
+        ..clear()
+        ..addAll(newMap);
+    });
+    _persistTournament();
+  }
+
+  /// 경기장 삭제. 마지막 1개는 삭제 불가(최소 1개 유지).
+  /// 해당 경기장에 배정된 (연령,급수)는 첫 번째 남은 경기장으로 재배정.
+  void _removeVenue(int i) {
+    if (i < 0 || i >= _venues.length) return;
+    if (_venues.length <= 1) return;
+    final removedId = _venues[i].id;
+    setState(() {
+      _venues.removeAt(i);
+      final fallbackId = _venues.first.id;
+      _assignMap.updateAll(
+          (key, val) => val == removedId ? fallbackId : val);
+      _syncVenuesToTournament(debounce: false);
+    });
+  }
+
   void _addAgeGroup(String label) {
     final masterOn =
         _ageGroupLabels.isNotEmpty &&
@@ -200,8 +378,10 @@ class _BracketScreenState extends State<BracketScreen>
         _activeAgeGroups.add(label);
         _openSections.add(label);
       }
-      for (final g in _allGrades) {
-        _assignMap[AssignKey(label, g)] = _venues.first.id;
+      for (final ev in Tournament.allEventTypes) {
+        for (final g in _allGrades) {
+          _assignMap[AssignKey(ev, label, g)] = _venues.first.id;
+        }
       }
     });
     _persistTournament();
@@ -372,7 +552,13 @@ class _BracketScreenState extends State<BracketScreen>
         children: [
           _ParticipantsTab(this),
           _SettingsTab(this),
-          BracketGeneratorTab(tournament: _tournament),
+          BracketGeneratorTab(
+            tournament: _tournament,
+            selectedPlayers: SampleData.players
+                .where((p) => _selected.contains(p.id))
+                .toList(),
+            assignMap: _assignMap,
+          ),
           const _ResultsTab(),
         ],
       ),
@@ -407,6 +593,8 @@ class _ParticipantsTab extends StatelessWidget {
             icon: Icons.groups_2_outlined,
             label: '클럽별',
             onTap: () => _showClubLookup(context, s),
+            bg: AppColors.gray2,
+            fg: AppColors.text2,
           ),
         ]),
       ),
@@ -418,12 +606,20 @@ class _ParticipantsTab extends StatelessWidget {
             icon: Icons.download_rounded,
             label: '양식 다운로드',
             onTap: () => _onEntrySampleDownload(context),
+            bg: AppColors.green2,
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+            fontSize: 12,
+            iconSize: 16,
           ),
           const SizedBox(width: 6),
           _PillBtn(
             icon: Icons.cloud_upload_rounded,
             label: '신청서 업로드',
             onTap: () => _onEntryUpload(context, s),
+            bg: AppColors.green2,
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+            fontSize: 12,
+            iconSize: 16,
           ),
         ]),
       ),
@@ -1067,8 +1263,31 @@ class _SettingsTab extends StatelessWidget {
         ),
         child: Column(children: [
           _DateCard(s),
+          _EventGradeCard(s),
           ...List.generate(s._venues.length,
               (i) => _VenueEditCard(s: s, index: i)),
+          // + 경기장 추가
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+            child: SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => s._addVenue(),
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('경기장 추가',
+                    style: TextStyle(
+                        fontSize: 14, fontWeight: FontWeight.w700)),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.primaryMid,
+                  side: const BorderSide(
+                      color: Color(0xFFB8C9F0), width: 1.6),
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+            ),
+          ),
           _AssignTable(s),
           _CourtSummary(s),
         ]),
@@ -1193,6 +1412,141 @@ class _CounterButton extends StatelessWidget {
       );
 }
 
+/// 경기 정보 카드 — 종별/연령/급수 선택 (참가자 탭 토글 상태와 동기화).
+/// 추가/삭제는 참가자 탭에서 (이 카드는 선택만).
+class _EventGradeCard extends StatelessWidget {
+  final _BracketScreenState s;
+  const _EventGradeCard(this.s);
+
+  Widget _chip({
+    required String label,
+    required bool selected,
+    required VoidCallback onTap,
+    Color? selBg,
+    Color? selFg,
+  }) {
+    final bg = selected ? (selBg ?? AppColors.primaryMid) : AppColors.gray;
+    final fg = selected ? (selFg ?? Colors.white) : AppColors.text2;
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 120),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: selected
+                ? (selBg ?? AppColors.primaryMid)
+                : const Color(0xFFD8DEE8),
+            width: 1.4,
+          ),
+        ),
+        child: Text(label,
+            style: TextStyle(
+                fontSize: 13, fontWeight: FontWeight.w700, color: fg)),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final selectedEvents = s._tournament.eventTypeList.toSet();
+    final ageLabels = s._ageGroupLabels;
+    final gradeLabels = s._gradeGroupLabels;
+
+    return _card(
+      title: '경기 정보',
+      subtitle: '참가자 탭 정보 자동 동기화 — 선택만 가능',
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('종별',
+            style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: AppColors.text2)),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: Tournament.allEventTypes
+              .map((e) => _chip(
+                    label: e,
+                    selected: selectedEvents.contains(e),
+                    onTap: () => s._toggleEvent(e),
+                  ))
+              .toList(),
+        ),
+        const SizedBox(height: 12),
+        Row(children: [
+          const Text('연령',
+              style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.text2)),
+          const SizedBox(width: 8),
+          if (ageLabels.isEmpty)
+            const Text('* 참가자 탭에서 추가하세요',
+                style:
+                    TextStyle(fontSize: 11, color: AppColors.muted)),
+        ]),
+        const SizedBox(height: 6),
+        if (ageLabels.isNotEmpty)
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: ageLabels
+                .map((l) => _chip(
+                      label: l,
+                      selected: s._activeAgeGroups.contains(l),
+                      onTap: () => s.rebuild(() {
+                        if (s._activeAgeGroups.contains(l)) {
+                          s._activeAgeGroups.remove(l);
+                          s._openSections.remove(l);
+                        } else {
+                          s._activeAgeGroups.add(l);
+                          s._openSections.add(l);
+                        }
+                      }),
+                    ))
+                .toList(),
+          ),
+        const SizedBox(height: 12),
+        Row(children: [
+          const Text('급수',
+              style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.text2)),
+          const SizedBox(width: 8),
+          if (gradeLabels.isEmpty)
+            const Text('* 참가자 탭에서 추가하세요',
+                style:
+                    TextStyle(fontSize: 11, color: AppColors.muted)),
+        ]),
+        const SizedBox(height: 6),
+        if (gradeLabels.isNotEmpty)
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: gradeLabels
+                .map((g) => _chip(
+                      label: g,
+                      selected: s._activeGrades.contains(g),
+                      onTap: () => s.rebuild(() {
+                        if (s._activeGrades.contains(g)) {
+                          s._activeGrades.remove(g);
+                        } else {
+                          s._activeGrades.add(g);
+                        }
+                      }),
+                    ))
+                .toList(),
+          ),
+      ]),
+    );
+  }
+}
+
 /// 경기장별 입력 카드 (이름/위치/코트 수)
 class _VenueEditCard extends StatefulWidget {
   final _BracketScreenState s;
@@ -1235,8 +1589,8 @@ class _VenueEditCardState extends State<_VenueEditCard> {
     final v = widget.s._venues[widget.index];
     final disabled = v.courts == 0;
     return Container(
-      margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-      padding: const EdgeInsets.all(10),
+      margin: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+      padding: const EdgeInsets.fromLTRB(10, 4, 10, 8),
       decoration: BoxDecoration(
         color: disabled ? AppColors.gray : AppColors.white,
         borderRadius: BorderRadius.circular(12),
@@ -1266,6 +1620,38 @@ class _VenueEditCardState extends State<_VenueEditCard> {
                       color: AppColors.red)),
             ),
           ],
+          const Spacer(),
+          // 경기장이 2개 이상일 때만 삭제 가능 (최소 1개 유지)
+          if (widget.s._venues.length > 1)
+            IconButton(
+              onPressed: () async {
+                final ok = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('경기장 삭제'),
+                    content: Text(
+                        '"${widget.s._venues[widget.index].name.isEmpty ? '경기장 ${widget.index + 1}' : widget.s._venues[widget.index].name}" 을(를) 삭제하시겠습니까?'),
+                    actions: [
+                      TextButton(
+                          onPressed: () => Navigator.pop(ctx, false),
+                          child: const Text('취소')),
+                      TextButton(
+                          onPressed: () => Navigator.pop(ctx, true),
+                          child: const Text('삭제',
+                              style:
+                                  TextStyle(color: AppColors.red))),
+                    ],
+                  ),
+                );
+                if (ok == true) widget.s._removeVenue(widget.index);
+              },
+              icon: const Icon(Icons.delete_outline, size: 20),
+              color: AppColors.red,
+              padding: EdgeInsets.zero,
+              constraints:
+                  const BoxConstraints(minWidth: 28, minHeight: 28),
+              tooltip: '경기장 삭제',
+            ),
         ]),
         const SizedBox(height: 6),
         TextField(
@@ -1343,76 +1729,298 @@ class _VenueEditCardState extends State<_VenueEditCard> {
   }
 }
 
-class _AssignTable extends StatelessWidget {
+/// AI 자동 배정용 셀 정보 — (연령, 급수) 단위 경기 수.
+class _AiCell {
+  final String age;
+  final String grade;
+  final int matches;
+  const _AiCell({
+    required this.age,
+    required this.grade,
+    required this.matches,
+  });
+}
+
+class _AssignTable extends StatefulWidget {
   final _BracketScreenState s;
   const _AssignTable(this.s);
 
   @override
-  Widget build(BuildContext context) {
-    final activeLabels =
-        s._ageGroupLabels.where(s._activeAgeGroups.contains).toList();
-    if (activeLabels.isEmpty) return const SizedBox();
+  State<_AssignTable> createState() => _AssignTableState();
+}
 
-    return _card(
-      title: '연령·급수별 경기장 배정',
-      subtitle: '경기장별 분리 운영',
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Table(
-          border: TableBorder.all(color: AppColors.gray2, width: 1),
-          defaultColumnWidth: const IntrinsicColumnWidth(),
-          children: [
-            TableRow(
-              decoration: const BoxDecoration(color: Color(0xFFF7F9FC)),
-              children: [
-                _th('연령\\급수'),
-                ..._BracketScreenState._allGrades.map(_th),
-              ],
-            ),
-            ...activeLabels.map((label) {
-              return TableRow(children: [
-                Padding(
-                  padding: const EdgeInsets.all(4),
-                  child: Text(label,
-                      style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.text2)),
+class _AssignTableState extends State<_AssignTable> {
+  /// 현재 보고 있는 종별 (탭). 대회의 활성 종별 중 첫 번째로 시작.
+  String? _activeEvent;
+
+  List<String> _selectedEvents() {
+    final selected = widget.s._tournament.eventTypeList;
+    return Tournament.allEventTypes.where(selected.contains).toList();
+  }
+
+  // 표 구조: 구분 컬럼 폭/행 높이 상수 — 좌측 고정 + 우측 스크롤 정렬용.
+  static const double _kLeftColWidth = 32;
+  static const double _kVenueColWidth = 150;
+  static const double _kHeaderHeight = 40;
+  static const double _kRowHeight = 64;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = widget.s;
+    final activeAges =
+        s._ageGroupLabels.where(s._activeAgeGroups.contains).toList();
+    if (activeAges.isEmpty) return const SizedBox();
+
+    final activeGrades =
+        s._gradeGroupLabels.where(s._activeGrades.contains).toList();
+    if (activeGrades.isEmpty) return const SizedBox();
+
+    final events = _selectedEvents();
+    if (events.isEmpty) return const SizedBox();
+
+    final venues = s._venues;
+    if (venues.isEmpty) return const SizedBox();
+
+    // _activeEvent 가 비활성/없는 이벤트면 첫 번째로 폴백.
+    final currentEvent =
+        events.contains(_activeEvent) ? _activeEvent! : events.first;
+
+    final totalHeight =
+        _kHeaderHeight + activeAges.length * _kRowHeight;
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: AppColors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFB8C9F0), width: 2.5),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        // 제목 + AI 자동배정 버튼
+        Row(children: [
+          const Text('연령별 급수별 경기장 배정',
+              style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.text)),
+          const Spacer(),
+          GestureDetector(
+            onTap: () async {
+              final ok = await showDialog<bool>(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  title: const Text('AI 자동 배정'),
+                  content: const Text(
+                      '선택된 참가자 인원수에 맞춰 모든 종별·연령·급수를 경기장 코트 비율로 자동 배정합니다.\n기존 수동 배정은 모두 덮어씌워집니다.'),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.pop(ctx, false),
+                        child: const Text('취소')),
+                    TextButton(
+                        onPressed: () => Navigator.pop(ctx, true),
+                        child: const Text('자동 배정',
+                            style: TextStyle(
+                                fontWeight: FontWeight.w800))),
+                  ],
                 ),
-                ..._BracketScreenState._allGrades.map((g) {
-                  final aKey = AssignKey(label, g);
-                  final curId = s._assignMap[aKey] ?? s._venues.first.id;
-                  return Padding(
-                    padding: const EdgeInsets.all(2),
-                    child: DropdownButton<String>(
-                      value: s._venues.any((v) => v.id == curId)
-                          ? curId
-                          : s._venues.first.id,
-                      isDense: true,
-                      underline: const SizedBox(),
-                      style: const TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.blue,
-                          fontFamily: 'NotoSansKR'),
-                      items: s._venues
-                          .map((v) => DropdownMenuItem(
-                              value: v.id,
-                              child: Text(v.name.replaceAll('경기장', '장'),
-                                  style: const TextStyle(fontSize: 10))))
-                          .toList(),
-                      onChanged: (val) {
-                        if (val != null) {
-                          s.rebuild(() => s._assignMap[aKey] = val);
-                        }
-                      },
-                    ),
-                  );
-                }),
-              ]);
+              );
+              if (ok == true) s._aiAssignVenues();
+            },
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: AppColors.green2,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.auto_awesome, size: 14, color: Colors.white),
+                SizedBox(width: 4),
+                Text('AI 자동배정',
+                    style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white)),
+              ]),
+            ),
+          ),
+        ]),
+        const SizedBox(height: 8),
+        // 종별 선택 버튼 (한 줄)
+        Row(children: [
+          for (final ev in events) ...[
+            _eventTab(ev, ev == currentEvent, () {
+              setState(() => _activeEvent = ev);
             }),
+            if (ev != events.last) const SizedBox(width: 6),
           ],
+        ]),
+        const SizedBox(height: 10),
+        // 좌측 '구분' 컬럼 고정 + 우측 경기장 컬럼 가로 스크롤.
+        SizedBox(
+          height: totalHeight,
+          child: Stack(
+            clipBehavior: Clip.hardEdge,
+            children: [
+              // 우측 (스크롤) — 좌측 폭만큼 padding 으로 비워두어 좌측 고정 컬럼이 위에 덮어씀.
+              Padding(
+                padding: const EdgeInsets.only(left: _kLeftColWidth),
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    // 헤더
+                    Row(children: [
+                      for (final v in venues)
+                        _venueHeaderCell(v.name.isEmpty
+                            ? '경기장 ${venues.indexOf(v) + 1}'
+                            : v.name),
+                    ]),
+                    // 데이터 행
+                    for (final age in activeAges)
+                      Row(children: [
+                        for (final v in venues)
+                          _gradeCell(
+                              currentEvent, age, v.id, activeGrades),
+                      ]),
+                  ]),
+                ),
+              ),
+              // 좌측 고정 (구분 컬럼) — 흰색 배경으로 우측 콘텐츠 가림.
+              SizedBox(
+                width: _kLeftColWidth,
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  _fixedHeaderCell('구분'),
+                  for (final age in activeAges) _fixedAgeCell(age),
+                ]),
+              ),
+            ],
+          ),
         ),
+      ]),
+    );
+  }
+
+  /// 좌측 고정 헤더 셀 (구분).
+  Widget _fixedHeaderCell(String label) => Container(
+        height: _kHeaderHeight,
+        width: _kLeftColWidth,
+        decoration: BoxDecoration(
+          color: const Color(0xFFF7F9FC),
+          border: Border.all(color: const Color(0xFFCBD5E1), width: 1),
+        ),
+        alignment: Alignment.center,
+        child: Text(label,
+            style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: AppColors.text2)),
+      );
+
+  /// 좌측 고정 연령 셀.
+  Widget _fixedAgeCell(String age) => Container(
+        height: _kRowHeight,
+        width: _kLeftColWidth,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: Border.all(color: const Color(0xFFCBD5E1), width: 1),
+        ),
+        alignment: Alignment.center,
+        child: Text(age,
+            style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: AppColors.text2)),
+      );
+
+  /// 우측 스크롤 헤더 셀 (경기장 이름).
+  Widget _venueHeaderCell(String name) => Container(
+        height: _kHeaderHeight,
+        width: _kVenueColWidth,
+        decoration: BoxDecoration(
+          color: const Color(0xFFF7F9FC),
+          border: Border.all(color: const Color(0xFFCBD5E1), width: 1),
+        ),
+        alignment: Alignment.center,
+        padding: const EdgeInsets.symmetric(horizontal: 6),
+        child: Text(name,
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+                color: AppColors.text2)),
+      );
+
+  /// 한 (연령, 경기장) 셀: 활성 급수 칩 나열.
+  /// 칩 탭 = 해당 (event, age, grade) → venueId 로 재배정.
+  Widget _gradeCell(
+      String event, String age, String venueId, List<String> grades) {
+    final s = widget.s;
+    return Container(
+      height: _kRowHeight,
+      width: _kVenueColWidth,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: const Color(0xFFCBD5E1), width: 1),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      alignment: Alignment.center,
+      child: Wrap(
+        spacing: 3,
+        runSpacing: 3,
+        alignment: WrapAlignment.center,
+        children: grades.map((g) {
+          final key = AssignKey(event, age, g);
+          final shortG = g.replaceAll('조', '');
+          final assigned =
+              (s._assignMap[key] ?? s._venues.first.id) == venueId;
+          return GestureDetector(
+            onTap: () => s.rebuild(() => s._assignMap[key] = venueId),
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+              decoration: BoxDecoration(
+                color: assigned ? AppColors.primaryMid : Colors.white,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(
+                  color: assigned
+                      ? AppColors.primaryMid
+                      : const Color(0xFFA8B5C7),
+                  width: 1.2,
+                ),
+              ),
+              child: Text(shortG,
+                  style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: assigned ? Colors.white : AppColors.text2)),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _eventTab(String label, bool selected, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 120),
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 4),
+        decoration: BoxDecoration(
+          color: selected ? AppColors.primaryMid : Colors.white,
+          borderRadius: BorderRadius.circular(7),
+          border: Border.all(
+              color: selected ? AppColors.primaryMid : const Color(0xFFD8DEE8),
+              width: 1.2),
+        ),
+        child: Text(label,
+            style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: selected ? Colors.white : AppColors.text2)),
       ),
     );
   }
@@ -1683,28 +2291,41 @@ class _PillBtn extends StatelessWidget {
   final IconData icon;
   final String label;
   final VoidCallback onTap;
+  final Color? bg;
+  final Color? fg;
+  final EdgeInsets? padding;
+  final double? fontSize;
+  final double? iconSize;
   const _PillBtn({
     required this.icon,
     required this.label,
     required this.onTap,
+    this.bg,
+    this.fg,
+    this.padding,
+    this.fontSize,
+    this.iconSize,
   });
   @override
   Widget build(BuildContext context) {
+    final bgColor = bg ?? AppColors.primaryMid;
+    final fgColor = fg ?? Colors.white;
     return OutlinedButton.icon(
       onPressed: onTap,
-      icon: Icon(icon, size: 14),
-      label: Text(label),
+      icon: Icon(icon, size: iconSize ?? 18, color: fgColor),
+      label: Text(label, style: TextStyle(color: fgColor)),
       style: OutlinedButton.styleFrom(
-        foregroundColor: AppColors.primaryMid,
-        backgroundColor: const Color(0xFFEFF6FF),
-        side: const BorderSide(color: Color(0xFFBFDBFE), width: 1.4),
-        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+        foregroundColor: fgColor,
+        backgroundColor: bgColor,
+        side: BorderSide(color: bgColor, width: 1.4),
+        padding: padding ??
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         minimumSize: Size.zero,
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
-        textStyle: const TextStyle(
-          fontSize: 11.5,
-          fontWeight: FontWeight.w700,
+        textStyle: TextStyle(
+          fontSize: fontSize ?? 13,
+          fontWeight: FontWeight.w800,
           letterSpacing: -0.2,
         ),
       ),
