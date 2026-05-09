@@ -61,6 +61,10 @@ class _BracketScreenState extends State<BracketScreen>
   /// 사용자 정의 급수 (자강조 등). 표준 급수와 합쳐 칩으로 노출.
   List<String> _customGrades = const [];
 
+  /// AI 자동배정 직전 _assignMap 스냅샷. 'AI 자동취소'로 복원.
+  /// null = 배정 후 한번도 자동배정 안 했거나 이미 취소함.
+  Map<AssignKey, String>? _preAiAssignMap;
+
   /// "전체" 제외, 실제 연령 그룹 라벨 목록
   List<String> get _ageGroupLabels =>
       _tournament.ageGroups.where((l) => l != '전체').toList();
@@ -255,10 +259,14 @@ class _BracketScreenState extends State<BracketScreen>
 
   /// AI 자동 배정: 선택된 참가자 인원수 기반으로 경기 부하를 경기장 코트 비율에 맞춰 분산.
   /// 각 (종별, 연령, 급수) 셀의 경기 수를 계산 → 큰 것부터 가장 부족한 경기장에 배정 (LDM).
+  /// 실행 전 스냅샷을 `_preAiAssignMap` 에 저장하여 'AI 자동취소'로 복원 가능.
   void _aiAssignVenues() {
     if (_venues.isEmpty) return;
     final activeVs = _venues.where((v) => v.courts > 0).toList();
     if (activeVs.isEmpty) return;
+
+    // 직전 상태 스냅샷 (실행 전).
+    final snapshot = Map<AssignKey, String>.from(_assignMap);
 
     final selectedPlayers = SampleData.players
         .where((p) => _selected.contains(p.id))
@@ -334,6 +342,21 @@ class _BracketScreenState extends State<BracketScreen>
       _assignMap
         ..clear()
         ..addAll(newMap);
+      _preAiAssignMap = snapshot;
+    });
+    _persistTournament();
+  }
+
+  /// AI 자동배정을 실행 직전 상태로 되돌림.
+  /// `_preAiAssignMap` 이 null 이면(스냅샷 없음) 무시.
+  void _undoAiAssign() {
+    final snap = _preAiAssignMap;
+    if (snap == null) return;
+    setState(() {
+      _assignMap
+        ..clear()
+        ..addAll(snap);
+      _preAiAssignMap = null;
     });
     _persistTournament();
   }
@@ -1847,7 +1870,7 @@ class _AssignTableState extends State<_AssignTable> {
           ),
         ]),
         const SizedBox(height: 8),
-        // 종별 선택 버튼 (한 줄)
+        // 종별 선택 버튼 + AI 자동취소 (같은 라인)
         Row(children: [
           for (final ev in events) ...[
             _eventTab(ev, ev == currentEvent, () {
@@ -1855,6 +1878,59 @@ class _AssignTableState extends State<_AssignTable> {
             }),
             if (ev != events.last) const SizedBox(width: 6),
           ],
+          const Spacer(),
+          // AI 자동취소 — 스냅샷 있을 때만 활성.
+          GestureDetector(
+            onTap: s._preAiAssignMap == null
+                ? null
+                : () async {
+                    final ok = await showDialog<bool>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: const Text('AI 자동취소'),
+                        content: const Text(
+                            'AI 자동배정 직전 상태로 되돌립니다.\n진행하시겠습니까?'),
+                        actions: [
+                          TextButton(
+                              onPressed: () => Navigator.pop(ctx, false),
+                              child: const Text('취소')),
+                          TextButton(
+                              onPressed: () => Navigator.pop(ctx, true),
+                              child: const Text('되돌리기',
+                                  style: TextStyle(
+                                      color: AppColors.red,
+                                      fontWeight: FontWeight.w800))),
+                        ],
+                      ),
+                    );
+                    if (ok == true) s._undoAiAssign();
+                  },
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: s._preAiAssignMap == null
+                    ? AppColors.gray2
+                    : AppColors.red2,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.undo,
+                    size: 14,
+                    color: s._preAiAssignMap == null
+                        ? AppColors.muted
+                        : Colors.white),
+                const SizedBox(width: 4),
+                Text('AI 자동취소',
+                    style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                        color: s._preAiAssignMap == null
+                            ? AppColors.muted
+                            : Colors.white)),
+              ]),
+            ),
+          ),
         ]),
         const SizedBox(height: 10),
         // 좌측 '구분' 컬럼 고정 + 우측 경기장 컬럼 가로 스크롤.
