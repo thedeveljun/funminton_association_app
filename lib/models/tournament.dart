@@ -91,6 +91,12 @@ class Tournament {
   /// 각 경기장의 기본 코트 수 (legacy 문자열 파싱 시 사용)
   static const int defaultCourtsPerVenue = 4;
 
+  // ── 경기장 배정 매트릭스 ────────────────────
+  /// 키: `"<event>|<ageLabel>|<grade>"` (예: `"혼복|40|A조"`). 값: `Venue.id`.
+  /// 화면(`BracketScreen`) 의 `_assignMap` 을 영속화하기 위한 직렬화 형태.
+  /// 빈 맵이면 화면 진입 시 모든 셀이 첫 경기장으로 폴백된다.
+  final Map<String, String> assignMap;
+
   Tournament({
     required this.id,
     required this.name,
@@ -116,6 +122,7 @@ class Tournament {
     String venueAddresses = '',
     String venueCourts = '',
     List<Venue>? venues,
+    this.assignMap = const {},
   }) : venues = venues ?? _parseLegacy(venue, venueAddresses, venueCourts);
 
   /// legacy 콤마 문자열 → List<Venue>
@@ -272,6 +279,7 @@ class Tournament {
     List<String>? ageGroups,
     List<String>? gradeGroups,
     List<Venue>? venues,
+    Map<String, String>? assignMap,
   }) =>
       Tournament(
         id: id,
@@ -299,6 +307,7 @@ class Tournament {
         venueAddresses: venueAddresses ?? this.venueAddresses,
         venueCourts: venueCourts ?? this.venueCourts,
         venues: venues ?? this.venues,
+        assignMap: assignMap ?? this.assignMap,
       );
 
   // ── DB 변환 ──────────────────────────────
@@ -329,6 +338,7 @@ class Tournament {
         'accepts_donation': acceptsDonation ? 1 : 0,
         'age_groups': ageGroups.join(','),
         'grade_groups': gradeGroups.join(','),
+        'assign_map': assignMap,
       };
 
   /// fromMap 단계에서 target_grade 컬럼을 읽을 때 라벨/'전체' 정규화.
@@ -433,6 +443,14 @@ class Tournament {
       venueAddresses: m['venue_addresses'] ?? '',
       venueCourts: m['venue_courts'] ?? '',
       venues: parsedVenues,
+      assignMap: () {
+        final raw = m['assign_map'];
+        if (raw is Map) {
+          return raw.map(
+              (k, v) => MapEntry(k.toString(), v?.toString() ?? ''));
+        }
+        return const <String, String>{};
+      }(),
     );
   }
 }

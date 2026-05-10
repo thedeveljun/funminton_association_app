@@ -52,6 +52,12 @@ class _BracketScreenState extends State<BracketScreen>
   late List<Venue> _venues;
   final Map<AssignKey, String> _assignMap = {};
   Timer? _persistDebounce;
+  Timer? _chipFiltersDebounce;
+  Timer? _selectedDebounce;
+  Timer? _scheduleDebounce;
+  /// 일정 하이드레이트 완료 플래그. controller listener 가 초기 로드 시점의
+  /// `setText` 까지 saving 으로 판단해 무한 루프/덮어쓰기 발생하지 않도록 차단.
+  bool _scheduleHydrated = false;
   static const int _maxCourtsPerVenue = 10;
 
   /// 참가신청 엑셀 업로드로 누적된 종목별 카운트.
@@ -123,16 +129,166 @@ class _BracketScreenState extends State<BracketScreen>
       ];
     }
 
+    // 저장된 배정 복원: 각 셀에 대해 stored venueId 가 현재 _venues 에 존재하면 사용,
+    // 아니면 첫 경기장으로 폴백. 셀이 stored map 에 없으면 첫 경기장.
+    final storedAssign = _tournament.assignMap;
+    final liveVenueIds = _venues.map((v) => v.id).toSet();
+    final fallbackVenueId = _venues.first.id;
     for (final ev in Tournament.allEventTypes) {
       for (final label in _ageGroupLabels) {
         for (final g in _allGrades) {
-          _assignMap[AssignKey(ev, label, g)] = _venues.first.id;
+          final stored = storedAssign[_assignStorageKey(ev, label, g)];
+          _assignMap[AssignKey(ev, label, g)] =
+              (stored != null && liveVenueIds.contains(stored))
+                  ? stored
+                  : fallbackVenueId;
         }
       }
     }
 
+    _date1Ctrl.addListener(_onScheduleTextChanged);
+    _date2Ctrl.addListener(_onScheduleTextChanged);
+    _date3Ctrl.addListener(_onScheduleTextChanged);
+    _date4Ctrl.addListener(_onScheduleTextChanged);
+
     _loadCustomGrades();
+    _loadFilterType();
+    _loadChipFilters();
+    _loadSelectedPlayers();
+    _loadSchedule();
+    _loadEntryEventCounts();
   }
+
+  /// 마지막 신청서 엑셀 누적 종목 카운트 복원.
+  /// 저장값 없으면 빈 맵 유지(요약 라인 미노출).
+  Future<void> _loadEntryEventCounts() async {
+    final saved =
+        await StorageService.loadBracketEntryEventCounts(_tournament.id);
+    if (!mounted || saved == null) return;
+    setState(() => _entryEventCounts = saved);
+  }
+
+  void _onScheduleTextChanged() {
+    if (!_scheduleHydrated) return;
+    _saveScheduleDebounced();
+  }
+
+  /// 마지막 참가자 탭 종별 필터(`_type`) 복원.
+  /// 저장값이 없거나 알 수 없는 값이면 기본 `'혼복'` 유지.
+  Future<void> _loadFilterType() async {
+    final saved = await StorageService.loadBracketTypeFilter(_tournament.id);
+    if (!mounted || saved == null) return;
+    if (saved == '혼복' || saved == '남복' || saved == '여복') {
+      setState(() => _type = saved);
+    }
+  }
+
+  /// 마지막 연령/급수 칩 활성 상태 복원.
+  /// - 저장값 없으면 initState 의 기본값(모두 활성) 유지
+  /// - 저장값 있으면 현재 라벨과 교집합만 적용 (라벨 변경/삭제 대비)
+  /// - `_openSections` 는 활성 연령에 맞춰 동기화 (개별 collapse 상태는 미영속화)
+  Future<void> _loadChipFilters() async {
+    final ages =
+        await StorageService.loadBracketActiveAgeGroups(_tournament.id);
+    final grades =
+        await StorageService.loadBracketActiveGrades(_tournament.id);
+    if (!mounted) return;
+    setState(() {
+      if (ages != null) {
+        final live = _ageGroupLabels.toSet();
+        final filtered = ages.where(live.contains).toList();
+        _activeAgeGroups
+          ..clear()
+          ..addAll(filtered);
+        _openSections
+          ..clear()
+          ..addAll(filtered);
+      }
+      if (grades != null) {
+        final live = _gradeGroupLabels.toSet();
+        _activeGrades
+          ..clear()
+          ..addAll(grades.where(live.contains));
+      }
+    });
+  }
+
+  /// 칩 활성 상태 저장 (디바운스 400ms). 빠른 연속 토글에 대응.
+  void _saveChipFiltersDebounced() {
+    _chipFiltersDebounce?.cancel();
+    _chipFiltersDebounce = Timer(const Duration(milliseconds: 400), () {
+      StorageService.saveBracketActiveAgeGroups(
+          _tournament.id, _activeAgeGroups.toList());
+      StorageService.saveBracketActiveGrades(
+          _tournament.id, _activeGrades.toList());
+    });
+  }
+
+  /// 마지막 참가자 선택 복원.
+  /// - 저장값 없으면 initState 의 기본값(전원 선택) 유지
+  /// - 저장값 있으면 현재 SampleData.players 와 교집합만 적용 (선수 삭제 대비)
+  Future<void> _loadSelectedPlayers() async {
+    final saved =
+        await StorageService.loadBracketSelectedPlayers(_tournament.id);
+    if (!mounted || saved == null) return;
+    final live = SampleData.players.map((p) => p.id).toSet();
+    setState(() {
+      _selected
+        ..clear()
+        ..addAll(saved.where(live.contains));
+    });
+  }
+
+  /// 참가자 선택 저장 (디바운스 400ms). '전체선택/해제' 같은 대량 변경에도 1회로 합쳐짐.
+  void _saveSelectedDebounced() {
+    _selectedDebounce?.cancel();
+    _selectedDebounce = Timer(const Duration(milliseconds: 400), () {
+      StorageService.saveBracketSelectedPlayers(
+          _tournament.id, _selected.toList());
+    });
+  }
+
+  /// 마지막 대회 일정(`_totalDays` + 4개 날짜) 복원.
+  /// - 저장값 없으면 field initializer 의 기본값(1일, 2026-05-10..13) 유지
+  /// - 저장값 있으면 setState 로 적용
+  /// 완료 후 `_scheduleHydrated` 플래그를 켜서 이후 controller 변경부터 저장 트리거.
+  Future<void> _loadSchedule() async {
+    final saved = await StorageService.loadBracketSchedule(_tournament.id);
+    if (!mounted) return;
+    if (saved != null) {
+      setState(() {
+        _totalDays = saved.totalDays.clamp(1, _maxDays);
+        final dates = saved.dates;
+        if (dates.isNotEmpty) _date1Ctrl.text = dates[0];
+        if (dates.length > 1) _date2Ctrl.text = dates[1];
+        if (dates.length > 2) _date3Ctrl.text = dates[2];
+        if (dates.length > 3) _date4Ctrl.text = dates[3];
+      });
+    }
+    _scheduleHydrated = true;
+  }
+
+  /// 일정 저장 (디바운스 400ms). 키보드 입력 한 글자 단위로 폭주하지 않도록 묶음.
+  void _saveScheduleDebounced() {
+    _scheduleDebounce?.cancel();
+    _scheduleDebounce = Timer(const Duration(milliseconds: 400), () {
+      StorageService.saveBracketSchedule(
+        _tournament.id,
+        _totalDays,
+        [
+          _date1Ctrl.text,
+          _date2Ctrl.text,
+          _date3Ctrl.text,
+          _date4Ctrl.text,
+        ],
+      );
+    });
+  }
+
+  /// `_assignMap` 의 `AssignKey` 를 `Tournament.assignMap` 직렬화 키로 변환.
+  /// 형식: `"<event>|<ageLabel>|<grade>"`. 분리자 `|` 는 라벨에 등장하지 않는다는 가정.
+  static String _assignStorageKey(String event, String age, String grade) =>
+      '$event|$age|$grade';
 
   Future<void> _loadCustomGrades() async {
     final saved = await StorageService.loadCustomGrades();
@@ -189,7 +345,15 @@ class _BracketScreenState extends State<BracketScreen>
   }
 
   // ── Tournament 그룹 편집 ──────────────────────────
+  /// `_tournament` 을 `SampleData.tournaments` 에 반영하고 SharedPreferences 에 저장.
+  /// 저장 직전 `_assignMap` 을 직렬화하여 `_tournament.assignMap` 에 합쳐 한 번에 영속화.
+  /// (이로써 모든 호출 지점이 자동으로 배정 상태까지 저장한다.)
   void _persistTournament() {
+    final serialized = <String, String>{};
+    _assignMap.forEach((k, v) {
+      serialized[_assignStorageKey(k.event, k.decadeKey, k.grade)] = v;
+    });
+    _tournament = _tournament.copyWith(assignMap: serialized);
     final idx = SampleData.tournaments.indexWhere((t) => t.id == _tournament.id);
     if (idx >= 0) {
       SampleData.tournaments[idx] = _tournament;
@@ -408,6 +572,7 @@ class _BracketScreenState extends State<BracketScreen>
       }
     });
     _persistTournament();
+    _saveChipFiltersDebounced();
   }
 
   void _removeAgeGroup(String label) {
@@ -420,6 +585,7 @@ class _BracketScreenState extends State<BracketScreen>
       _assignMap.removeWhere((k, _) => k.decadeKey == label);
     });
     _persistTournament();
+    _saveChipFiltersDebounced();
   }
 
   /// 급수 정렬 순서: 자강조 → S조 → A조 → B조 → C조 → D조 → E조 → 초심조.
@@ -460,6 +626,7 @@ class _BracketScreenState extends State<BracketScreen>
       if (masterOn) _activeGrades.add(label);
     });
     _persistTournament();
+    _saveChipFiltersDebounced();
   }
 
   void _removeGradeGroup(String label) {
@@ -470,6 +637,7 @@ class _BracketScreenState extends State<BracketScreen>
       _activeGrades.remove(label);
     });
     _persistTournament();
+    _saveChipFiltersDebounced();
   }
 
   @override
@@ -479,6 +647,38 @@ class _BracketScreenState extends State<BracketScreen>
       // 디바운스 대기 중인 변경사항 즉시 저장
       _persistTournament();
     }
+    if (_chipFiltersDebounce?.isActive ?? false) {
+      _chipFiltersDebounce!.cancel();
+      // 디바운스 대기 중인 칩 상태 즉시 저장
+      StorageService.saveBracketActiveAgeGroups(
+          _tournament.id, _activeAgeGroups.toList());
+      StorageService.saveBracketActiveGrades(
+          _tournament.id, _activeGrades.toList());
+    }
+    if (_selectedDebounce?.isActive ?? false) {
+      _selectedDebounce!.cancel();
+      // 디바운스 대기 중인 참가자 선택 즉시 저장
+      StorageService.saveBracketSelectedPlayers(
+          _tournament.id, _selected.toList());
+    }
+    if (_scheduleDebounce?.isActive ?? false) {
+      _scheduleDebounce!.cancel();
+      // 디바운스 대기 중인 일정 즉시 저장
+      StorageService.saveBracketSchedule(
+        _tournament.id,
+        _totalDays,
+        [
+          _date1Ctrl.text,
+          _date2Ctrl.text,
+          _date3Ctrl.text,
+          _date4Ctrl.text,
+        ],
+      );
+    }
+    _date1Ctrl.removeListener(_onScheduleTextChanged);
+    _date2Ctrl.removeListener(_onScheduleTextChanged);
+    _date3Ctrl.removeListener(_onScheduleTextChanged);
+    _date4Ctrl.removeListener(_onScheduleTextChanged);
     _tc.dispose();
     _date1Ctrl.dispose();
     _date2Ctrl.dispose();
@@ -607,7 +807,10 @@ class _ParticipantsTab extends StatelessWidget {
             child: FilterChipRow(
               options: const ['혼복', '남복', '여복'],
               selected: s._type,
-              onSelect: (v) => s.rebuild(() => s._type = v),
+              onSelect: (v) {
+                s.rebuild(() => s._type = v);
+                StorageService.saveBracketTypeFilter(s._tournament.id, v);
+              },
               padding: EdgeInsets.zero,
             ),
           ),
@@ -678,6 +881,7 @@ class _ParticipantsTab extends StatelessWidget {
                     final ids =
                         s._filteredPlayers.map((p) => p.id).toList();
                     s.rebuild(() => s._selected.addAll(ids));
+                    s._saveSelectedDebounced();
                   },
                   style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 11)),
@@ -689,6 +893,7 @@ class _ParticipantsTab extends StatelessWidget {
                     final ids =
                         s._filteredPlayers.map((p) => p.id).toList();
                     s.rebuild(() => s._selected.removeAll(ids));
+                    s._saveSelectedDebounced();
                   },
                   style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 11)),
@@ -736,6 +941,7 @@ class _DecadeToggleBar extends StatelessWidget {
                   ..addAll(labels);
               }
             });
+            s._saveChipFiltersDebounced();
           },
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 120),
@@ -781,6 +987,7 @@ class _DecadeToggleBar extends StatelessWidget {
                             s._openSections.add(label);
                           }
                         });
+                        s._saveChipFiltersDebounced();
                       },
                       onLongPress: () =>
                           _showDeleteGroupDialog(context, label, isAge: true),
@@ -934,6 +1141,7 @@ class _GradeToggleBar extends StatelessWidget {
                   ..addAll(options);
               }
             });
+            s._saveChipFiltersDebounced();
           },
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 120),
@@ -977,6 +1185,7 @@ class _GradeToggleBar extends StatelessWidget {
                             s._activeGrades.add(g);
                           }
                         });
+                        s._saveChipFiltersDebounced();
                       },
                       onLongPress: () =>
                           _showDeleteDialog(context, g),
@@ -1196,11 +1405,14 @@ class _AgedPlayerList extends StatelessWidget {
                 .map((p) => PlayerSelectItem(
                       player: p,
                       isSelected: s._selected.contains(p.id),
-                      onTap: () => s.rebuild(() {
-                        s._selected.contains(p.id)
-                            ? s._selected.remove(p.id)
-                            : s._selected.add(p.id);
-                      }),
+                      onTap: () {
+                        s.rebuild(() {
+                          s._selected.contains(p.id)
+                              ? s._selected.remove(p.id)
+                              : s._selected.add(p.id);
+                        });
+                        s._saveSelectedDebounced();
+                      },
                     ))
                 .toList()
             : [],
@@ -1371,8 +1583,10 @@ class _DateCard extends StatelessWidget {
           Row(children: [
             for (int d = 1; d <= _BracketScreenState._maxDays; d++) ...[
               if (d > 1) const SizedBox(width: 6),
-              _dayBtn('$d일', s._totalDays == d,
-                  () => s.rebuild(() => s._totalDays = d)),
+              _dayBtn('$d일', s._totalDays == d, () {
+                s.rebuild(() => s._totalDays = d);
+                s._saveScheduleDebounced();
+              }),
             ],
           ]),
           for (int d = 2; d <= s._totalDays; d++) ...[
@@ -1521,15 +1735,18 @@ class _EventGradeCard extends StatelessWidget {
                 .map((l) => _chip(
                       label: l,
                       selected: s._activeAgeGroups.contains(l),
-                      onTap: () => s.rebuild(() {
-                        if (s._activeAgeGroups.contains(l)) {
-                          s._activeAgeGroups.remove(l);
-                          s._openSections.remove(l);
-                        } else {
-                          s._activeAgeGroups.add(l);
-                          s._openSections.add(l);
-                        }
-                      }),
+                      onTap: () {
+                        s.rebuild(() {
+                          if (s._activeAgeGroups.contains(l)) {
+                            s._activeAgeGroups.remove(l);
+                            s._openSections.remove(l);
+                          } else {
+                            s._activeAgeGroups.add(l);
+                            s._openSections.add(l);
+                          }
+                        });
+                        s._saveChipFiltersDebounced();
+                      },
                     ))
                 .toList(),
           ),
@@ -1555,13 +1772,16 @@ class _EventGradeCard extends StatelessWidget {
                 .map((g) => _chip(
                       label: g,
                       selected: s._activeGrades.contains(g),
-                      onTap: () => s.rebuild(() {
-                        if (s._activeGrades.contains(g)) {
-                          s._activeGrades.remove(g);
-                        } else {
-                          s._activeGrades.add(g);
-                        }
-                      }),
+                      onTap: () {
+                        s.rebuild(() {
+                          if (s._activeGrades.contains(g)) {
+                            s._activeGrades.remove(g);
+                          } else {
+                            s._activeGrades.add(g);
+                          }
+                        });
+                        s._saveChipFiltersDebounced();
+                      },
                     ))
                 .toList(),
           ),
@@ -2053,7 +2273,10 @@ class _AssignTableState extends State<_AssignTable> {
           final assigned =
               (s._assignMap[key] ?? s._venues.first.id) == venueId;
           return GestureDetector(
-            onTap: () => s.rebuild(() => s._assignMap[key] = venueId),
+            onTap: () {
+              s.rebuild(() => s._assignMap[key] = venueId);
+              s._persistTournamentDebounced();
+            },
             child: Container(
               padding:
                   const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
@@ -2361,6 +2584,10 @@ Future<void> _onEntryUpload(
     });
     s._entryEventCounts = merged;
   });
+  s._saveSelectedDebounced();
+  // 엑셀 업로드는 단발 액션이라 디바운스 없이 즉시 저장.
+  StorageService.saveBracketEntryEventCounts(
+      s._tournament.id, s._entryEventCounts);
 }
 
 class _PillBtn extends StatelessWidget {

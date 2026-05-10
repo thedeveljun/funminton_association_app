@@ -29,6 +29,12 @@ class StorageService {
   static const _kClubShares = 'data_club_shares_v1';
   static const _kDonations = 'data_donations_v1';
   static const _kPlayerFeeUnit = 'cfg_player_fee_unit_v1';
+  static const _kBracketTypeFilter = 'ui_bracket_type_filter_v1';
+  static const _kBracketActiveAgeGroups = 'ui_bracket_active_age_groups_v1';
+  static const _kBracketActiveGrades = 'ui_bracket_active_grades_v1';
+  static const _kBracketSelectedPlayers = 'ui_bracket_selected_players_v1';
+  static const _kBracketSchedule = 'ui_bracket_schedule_v1';
+  static const _kBracketEntryEventCounts = 'ui_bracket_entry_event_counts_v1';
 
   // ─── CLUBS ────────────────────────────────────
 
@@ -122,6 +128,186 @@ class StorageService {
   static Future<List<String>?> loadGradeOrder() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getStringList(_kGradeOrder);
+  }
+
+  // ─── 대진표 참가자 탭 종별 필터 (혼복/남복/여복) ───
+  // 화면 진입 시 마지막 선택을 복원하기 위한 대회별 UI 상태.
+  // 키: tournamentId, 값: '혼복'|'남복'|'여복'.
+
+  static Future<void> saveBracketTypeFilter(
+      String tournamentId, String type) async {
+    if (tournamentId.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_kBracketTypeFilter);
+    Map<String, dynamic> map = {};
+    if (raw != null) {
+      try {
+        map = Map<String, dynamic>.from(jsonDecode(raw));
+      } catch (_) {
+        // 손상된 값은 새 맵으로 덮어쓰기
+      }
+    }
+    map[tournamentId] = type;
+    await prefs.setString(_kBracketTypeFilter, jsonEncode(map));
+  }
+
+  static Future<String?> loadBracketTypeFilter(String tournamentId) async {
+    if (tournamentId.isEmpty) return null;
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_kBracketTypeFilter);
+    if (raw == null) return null;
+    try {
+      final map = Map<String, dynamic>.from(jsonDecode(raw));
+      final v = map[tournamentId];
+      return v?.toString();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // ─── 대진표 칩 활성 상태 (연령 그룹 / 급수) ───────
+  // 같은 패턴으로 대회별 List<String> 을 단일 키 JSON 맵에 저장.
+
+  static Future<void> _saveBracketStringList(
+      String key, String tournamentId, List<String> values) async {
+    if (tournamentId.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(key);
+    Map<String, dynamic> map = {};
+    if (raw != null) {
+      try {
+        map = Map<String, dynamic>.from(jsonDecode(raw));
+      } catch (_) {/* 손상 시 새 맵 */}
+    }
+    map[tournamentId] = values;
+    await prefs.setString(key, jsonEncode(map));
+  }
+
+  static Future<List<String>?> _loadBracketStringList(
+      String key, String tournamentId) async {
+    if (tournamentId.isEmpty) return null;
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(key);
+    if (raw == null) return null;
+    try {
+      final map = Map<String, dynamic>.from(jsonDecode(raw));
+      final v = map[tournamentId];
+      if (v is List) {
+        return v.map((e) => e.toString()).toList();
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<void> saveBracketActiveAgeGroups(
+          String tournamentId, List<String> labels) =>
+      _saveBracketStringList(
+          _kBracketActiveAgeGroups, tournamentId, labels);
+
+  static Future<List<String>?> loadBracketActiveAgeGroups(
+          String tournamentId) =>
+      _loadBracketStringList(_kBracketActiveAgeGroups, tournamentId);
+
+  static Future<void> saveBracketActiveGrades(
+          String tournamentId, List<String> labels) =>
+      _saveBracketStringList(_kBracketActiveGrades, tournamentId, labels);
+
+  static Future<List<String>?> loadBracketActiveGrades(String tournamentId) =>
+      _loadBracketStringList(_kBracketActiveGrades, tournamentId);
+
+  static Future<void> saveBracketSelectedPlayers(
+          String tournamentId, List<String> playerIds) =>
+      _saveBracketStringList(
+          _kBracketSelectedPlayers, tournamentId, playerIds);
+
+  static Future<List<String>?> loadBracketSelectedPlayers(
+          String tournamentId) =>
+      _loadBracketStringList(_kBracketSelectedPlayers, tournamentId);
+
+  // ─── 대진표 일정 (대회 일수 + 날짜) ───────────────
+  // `{tournamentId: {totalDays: N, dates: [d1,d2,d3,d4]}}` 형태로 저장.
+
+  static Future<void> saveBracketSchedule(
+      String tournamentId, int totalDays, List<String> dates) async {
+    if (tournamentId.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_kBracketSchedule);
+    Map<String, dynamic> map = {};
+    if (raw != null) {
+      try {
+        map = Map<String, dynamic>.from(jsonDecode(raw));
+      } catch (_) {/* 손상 시 새 맵 */}
+    }
+    map[tournamentId] = {
+      'totalDays': totalDays,
+      'dates': dates,
+    };
+    await prefs.setString(_kBracketSchedule, jsonEncode(map));
+  }
+
+  // ─── 대진표 신청서 엑셀 누적 종목 카운트 ──────────
+  // `{tournamentId: {"혼복":12,"남복":4,...}}` 형태로 저장.
+
+  static Future<void> saveBracketEntryEventCounts(
+      String tournamentId, Map<String, int> counts) async {
+    if (tournamentId.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_kBracketEntryEventCounts);
+    Map<String, dynamic> map = {};
+    if (raw != null) {
+      try {
+        map = Map<String, dynamic>.from(jsonDecode(raw));
+      } catch (_) {/* 손상 시 새 맵 */}
+    }
+    map[tournamentId] = counts;
+    await prefs.setString(_kBracketEntryEventCounts, jsonEncode(map));
+  }
+
+  static Future<Map<String, int>?> loadBracketEntryEventCounts(
+      String tournamentId) async {
+    if (tournamentId.isEmpty) return null;
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_kBracketEntryEventCounts);
+    if (raw == null) return null;
+    try {
+      final map = Map<String, dynamic>.from(jsonDecode(raw));
+      final entry = map[tournamentId];
+      if (entry is! Map) return null;
+      final out = <String, int>{};
+      entry.forEach((k, v) {
+        final n = (v is num) ? v.toInt() : int.tryParse('$v');
+        if (n != null) out[k.toString()] = n;
+      });
+      return out;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 반환: `(totalDays, dates)` 레코드. 저장값 없으면 null.
+  /// dates 길이는 0~4 가 일반적이지만 호출자가 안전하게 처리해야 함.
+  static Future<({int totalDays, List<String> dates})?> loadBracketSchedule(
+      String tournamentId) async {
+    if (tournamentId.isEmpty) return null;
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_kBracketSchedule);
+    if (raw == null) return null;
+    try {
+      final map = Map<String, dynamic>.from(jsonDecode(raw));
+      final entry = map[tournamentId];
+      if (entry is! Map) return null;
+      final m = Map<String, dynamic>.from(entry);
+      final totalDays = (m['totalDays'] as num?)?.toInt() ?? 1;
+      final datesRaw = m['dates'];
+      final dates = datesRaw is List
+          ? datesRaw.map((e) => e.toString()).toList()
+          : <String>[];
+      return (totalDays: totalDays, dates: dates);
+    } catch (_) {
+      return null;
+    }
   }
 
   // ─── 협회비 단가 (협회별 정책) ──────────────────
@@ -337,5 +523,11 @@ class StorageService {
     await prefs.remove(_kTransactions);
     await prefs.remove(_kClubShares);
     await prefs.remove(_kDonations);
+    await prefs.remove(_kBracketTypeFilter);
+    await prefs.remove(_kBracketActiveAgeGroups);
+    await prefs.remove(_kBracketActiveGrades);
+    await prefs.remove(_kBracketSelectedPlayers);
+    await prefs.remove(_kBracketSchedule);
+    await prefs.remove(_kBracketEntryEventCounts);
   }
 }
