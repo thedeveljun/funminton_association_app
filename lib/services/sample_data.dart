@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import '../models/club.dart';
 import '../models/player.dart';
 import '../models/tournament.dart';
@@ -27,6 +28,13 @@ class SampleData {
   static final List<Club> clubs = [];
   static final List<Player> players = [];
   static final List<FinanceTransaction> transactions = [];
+
+  /// tournaments 리스트 갱신 알림 (BracketScreen 외부 변경 감지용).
+  /// 변경이 일어날 때마다 .value++. ValueListenableBuilder 또는 addListener 로 구독.
+  static final ValueNotifier<int> tournamentsRev = ValueNotifier<int>(0);
+
+  /// players 리스트 갱신 알림. tournamentsRev 와 동일 패턴.
+  static final ValueNotifier<int> playersRev = ValueNotifier<int>(0);
 
   /// 영구 저장 대상 판별 — id에 '_'가 포함된 데이터만 사용자 입력으로 간주.
   /// 사용자 입력 id 컨벤션은 모두 '_' 포함(예: club_<ms>, t_<ms>, cs_<μs>, …).
@@ -105,6 +113,37 @@ class SampleData {
       clubShares.where((s) => _isUserId(s.id)).toList());
   static Future<void> saveDonations() => StorageService.saveDonations(
       donations.where((d) => _isUserId(d.id)).toList());
+
+  /// 단일 선수 갱신 — in-memory 교체 + SP 저장 + playersRev bump.
+  /// BracketScreen 등에서 선수 정보를 수정한 뒤 호출.
+  static Future<void> updatePlayer(Player p) async {
+    final idx = players.indexWhere((x) => x.id == p.id);
+    if (idx < 0) return;
+    players[idx] = p;
+    playersRev.value++;
+    await savePlayers();
+  }
+
+  /// 단일 선수 삭제 — in-memory 제거 + SP 저장.
+  static Future<void> deletePlayer(String id) async {
+    players.removeWhere((p) => p.id == id);
+    playersRev.value++;
+    await savePlayers();
+  }
+
+  /// 전체 선수 삭제 — '명단 전체 삭제' 메뉴용. 사용자 ID 만 비움.
+  static Future<void> clearAllPlayers() async {
+    players.removeWhere((p) => _isUserId(p.id));
+    playersRev.value++;
+    await StorageService.savePlayers(const []);
+  }
+
+  /// 단일 대회 삭제 — in-memory 제거 + SP 저장.
+  static Future<void> deleteTournament(String id) async {
+    tournaments.removeWhere((t) => t.id == id);
+    tournamentsRev.value++;
+    await saveTournaments();
+  }
 
   /// 음수/비정상 나이 → birthDate 로부터 재계산.
   /// 비표준 birthDate(예: '1998-11-27') → 6자리 YYMMDD 표준형으로 정규화.

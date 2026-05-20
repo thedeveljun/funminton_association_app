@@ -164,41 +164,254 @@ BracketFormat? determineFormat(int n) {
   );
 }
 
+// ═══════════════════════════════════════════════════════
+//  대회 규모·포맷 권장 (운영진 의사결정 보조)
+// ═══════════════════════════════════════════════════════
+
+/// 부서별 권장 포맷.
+class FormatRecommendation {
+  /// 권장 포맷 이름. 예: '풀리그', '단일 토너먼트 + 위로조', '예선+본선'
+  final String label;
+
+  /// 운영진이 보고 판단할 짧은 사유. 예: '모든 팀 3경기 보장'
+  final String reason;
+
+  /// 한 팀이 평균적으로 치르는 최소 경기 수.
+  final int minMatchesPerTeam;
+
+  /// 현재 앱이 이 포맷을 실제로 지원하는지. false면 안내만 하고 실제 생성은 fallback.
+  final bool supportedNow;
+
+  const FormatRecommendation({
+    required this.label,
+    required this.reason,
+    required this.minMatchesPerTeam,
+    this.supportedNow = true,
+  });
+}
+
+/// 팀 수 기반 권장 포맷 결정.
+/// - 3~5팀: 풀리그 (모든 팀 N-1 경기)
+/// - 6~8팀: 단일 토너먼트 + 위로조 (1라운드 패자도 추가 경기) — 동호인 만족도↑
+/// - 9~16팀: 조별예선 + 본선 (소·중규모 표준)
+/// - 17팀 이상: 조별예선 + 본선 (16강 이상)
+FormatRecommendation recommendFormat(int teams) {
+  if (teams < 3) {
+    return const FormatRecommendation(
+      label: '부서 미생성',
+      reason: '3팀 미만은 경기로 인정하지 않음',
+      minMatchesPerTeam: 0,
+    );
+  }
+  if (teams <= 5) {
+    return FormatRecommendation(
+      label: '풀리그',
+      reason: '모든 팀 ${teams - 1}경기 보장 — 만족도 높음',
+      minMatchesPerTeam: teams - 1,
+    );
+  }
+  if (teams <= 8) {
+    return const FormatRecommendation(
+      label: '단일 토너먼트 + 위로조',
+      reason: '1라운드 패자도 위로조 진출 — 한 번 지고 끝나지 않음 (현재 버전은 예선+본선으로 대체)',
+      minMatchesPerTeam: 2,
+      supportedNow: false,
+    );
+  }
+  if (teams <= 16) {
+    return FormatRecommendation(
+      label: '예선+본선 (8강)',
+      reason: '$teams팀: 3~4팀 조별예선 → 본선 토너먼트',
+      minMatchesPerTeam: 3,
+    );
+  }
+  return FormatRecommendation(
+    label: '예선+본선 (16강↑)',
+    reason: '$teams팀: 조별예선 → 16강 이상 본선',
+    minMatchesPerTeam: 3,
+  );
+}
+
+/// 대회 전체 규모 tier 판정 (총 참가자 수 기준).
+String tournamentScaleTier(int totalParticipants) {
+  if (totalParticipants <= 0) return '미정';
+  if (totalParticipants <= 50) return '소규모 (~50명, 클럽 대회)';
+  if (totalParticipants <= 150) return '중규모 (~150명, 구청급)';
+  if (totalParticipants <= 500) return '시 단위 (~500명, 협회)';
+  if (totalParticipants <= 1500) return '광역 (~1500명)';
+  return '특대형 (1500명+)';
+}
+
+/// 표준 round-robin (circle method) 라운드 생성.
+/// 각 라운드 = 동시 진행 가능한 [팀A, 팀B] 페어 리스트.
+/// 한 라운드 안에서는 같은 팀이 절대 두 번 등장하지 않는다.
+/// 홀수 n 은 한 팀에게 라운드마다 부전승.
+List<List<List<int>>> roundRobinRounds(int n) {
+  if (n < 2) return const [];
+  final m = n.isOdd ? n + 1 : n;
+  final bye = n.isOdd ? n : -1;
+  final teams = List<int>.generate(m, (i) => i);
+  final half = m ~/ 2;
+  final rounds = <List<List<int>>>[];
+  for (int r = 0; r < m - 1; r++) {
+    final round = <List<int>>[];
+    for (int i = 0; i < half; i++) {
+      final a = teams[i];
+      final b = teams[m - 1 - i];
+      if (a != bye && b != bye) round.add([a, b]);
+    }
+    rounds.add(round);
+    // 원형 회전: 첫 팀 고정, 나머지를 회전 (마지막 → 두 번째 자리)
+    final last = teams.removeAt(m - 1);
+    teams.insert(1, last);
+  }
+  return rounds;
+}
+
+/// 한 그룹이 차지하는 시간 슬롯(=라운드/코트 분할) 수.
+/// 라운드 안에서 매치가 코트 수보다 많으면 슬롯이 분할되어 추가됨.
+int slotsForGroup(int n, int courts) {
+  if (n < 2 || courts < 1) return 0;
+  final rounds = roundRobinRounds(n);
+  int slots = 0;
+  for (final r in rounds) {
+    slots += (r.length + courts - 1) ~/ courts;
+  }
+  return slots;
+}
+
+/// 한 그룹의 코트·시간 할당 정보.
+class GroupAllocation {
+  /// venue 의 startCourt 기준 코트 오프셋 (0-base).
+  final int courtOffset;
+  /// 이 그룹이 사용하는 코트 수 (= floor(size/2) 까지, 최대 가용 코트로 클램프).
+  final int parallelCourts;
+  /// venue 의 기준 시각에서 더해질 분(누적 오프셋).
+  final int extraStartMinutes;
+
+  const GroupAllocation({
+    required this.courtOffset,
+    required this.parallelCourts,
+    required this.extraStartMinutes,
+  });
+}
+
+/// 한 division 의 group 들을 경기장 코트에 병렬 배치.
+/// - 코트가 남으면 다음 그룹을 같은 시간에 다른 코트 범위에 배치.
+/// - 코트가 모자라면 현재 배치(batch) 가 끝난 후로 큐잉.
+/// [restMinutes] 라운드 사이 휴식이 있으면 그룹 길이에 포함시켜 다음 batch 가 그만큼 밀림.
+List<GroupAllocation> allocateGroups({
+  required List<GroupInfo> groups,
+  required int venueCourts,
+  required int matchMinutes,
+  int initialOffsetMin = 0,
+  int restMinutes = 0,
+}) {
+  final result = <GroupAllocation>[];
+  if (venueCourts < 1) return result;
+  int courtOffset = 0;
+  int batchStart = initialOffsetMin;
+  int maxBatchDurationMin = 0;
+
+  for (final g in groups) {
+    int parallelNeeded = (g.size / 2).floor();
+    if (parallelNeeded < 1) parallelNeeded = 1;
+    if (parallelNeeded > venueCourts) parallelNeeded = venueCourts;
+
+    if (courtOffset + parallelNeeded > venueCourts) {
+      // 현재 batch 가 끝난 후 새 batch 시작.
+      batchStart += maxBatchDurationMin;
+      courtOffset = 0;
+      maxBatchDurationMin = 0;
+    }
+
+    result.add(GroupAllocation(
+      courtOffset: courtOffset,
+      parallelCourts: parallelNeeded,
+      extraStartMinutes: batchStart,
+    ));
+
+    final groupSlots = slotsForGroup(g.size, parallelNeeded);
+    final groupRoundCount = roundRobinRounds(g.size).length;
+    final groupDurationMin =
+        groupSlots * matchMinutes + (groupRoundCount - 1).clamp(0, 1 << 30) * restMinutes;
+    if (groupDurationMin > maxBatchDurationMin) {
+      maxBatchDurationMin = groupDurationMin;
+    }
+    courtOffset += parallelNeeded;
+  }
+  return result;
+}
+
+/// 할당 리스트 기준으로 division 전체가 차지하는 총 시간(분).
+int totalMinutesForAllocations(
+    List<GroupInfo> groups, List<GroupAllocation> allocations, int matchMinutes,
+    {int baseStart = 0, int restMinutes = 0}) {
+  int maxEnd = baseStart;
+  for (int i = 0; i < groups.length && i < allocations.length; i++) {
+    final a = allocations[i];
+    final slots = slotsForGroup(groups[i].size, a.parallelCourts);
+    final rounds = roundRobinRounds(groups[i].size).length;
+    final end = a.extraStartMinutes +
+        slots * matchMinutes +
+        (rounds - 1).clamp(0, 1 << 30) * restMinutes;
+    if (end > maxEnd) maxEnd = end;
+  }
+  return maxEnd;
+}
+
 /// 조의 모든 경기에 코트 번호와 시간 자동 배정.
-/// 1경기 30분 (25점 + 코트 전환 5분) 기준.
+/// - 같은 라운드(=시각) 안에서 동일 팀이 두 번 배정되지 않도록 round-robin 사용.
+/// - 라운드 내 매치 > 코트 수면 다음 시간 슬롯으로 자동 분할.
+/// [extraStartMinutes] 앞 그룹이 끝난 후의 누적 오프셋(분).
+/// [restMinutes] 라운드 사이 추가 휴식(분). 0이면 휴식 없음. 같은 팀이 연속 라운드에서
+/// 다시 경기하는 round-robin 특성상, 한 슬롯 이상의 휴식을 강제하려면 양수 권장.
 List<MatchInfo> generateMatches({
   required GroupInfo group,
   required int courts,
   int startCourt = 1,
   int startMatchNum = 1,
   String startTime = '13:00',
+  int matchMinutes = 30,
+  int extraStartMinutes = 0,
+  int restMinutes = 0,
 }) {
   final matches = <MatchInfo>[];
   final n = group.size;
-  int mNum = startMatchNum;
-  int courtIdx = 0;
-  final timeParts = startTime.split(':');
-  final timeMin =
-      int.parse(timeParts[0]) * 60 + int.parse(timeParts[1]);
+  if (n < 2 || courts < 1) return matches;
 
-  for (int i = 0; i < n; i++) {
-    for (int j = i + 1; j < n; j++) {
-      final court = (courtIdx % courts) + startCourt;
-      final round = courtIdx ~/ courts;
-      final t = timeMin + round * 30;
+  final rounds = roundRobinRounds(n);
+  final timeParts = startTime.split(':');
+  final baseMin =
+      int.parse(timeParts[0]) * 60 + int.parse(timeParts[1]);
+  final step = matchMinutes > 0 ? matchMinutes : 30;
+  int mNum = startMatchNum;
+  int slotIdx = 0;
+  int extraRest = 0; // 누적 라운드간 휴식 분
+
+  for (int r = 0; r < rounds.length; r++) {
+    final round = rounds[r];
+    final totalSlotsInRound = (round.length + courts - 1) ~/ courts;
+    for (int s = 0; s < totalSlotsInRound; s++) {
+      final t = baseMin + extraStartMinutes + extraRest + slotIdx * step;
       final hh = (t ~/ 60).toString().padLeft(2, '0');
       final mm = (t % 60).toString().padLeft(2, '0');
-
-      matches.add(MatchInfo(
-        num_: mNum,
-        court: court,
-        team1Index: i,
-        team2Index: j,
-        time: '$hh:$mm',
-      ));
-      mNum++;
-      courtIdx++;
+      for (int c = 0;
+          c < courts && s * courts + c < round.length;
+          c++) {
+        final pair = round[s * courts + c];
+        matches.add(MatchInfo(
+          num_: mNum,
+          court: startCourt + c,
+          team1Index: pair[0],
+          team2Index: pair[1],
+          time: '$hh:$mm',
+        ));
+        mNum++;
+      }
+      slotIdx++;
     }
+    if (r < rounds.length - 1) extraRest += restMinutes;
   }
   return matches;
 }
@@ -218,14 +431,13 @@ String polygonName(int n) {
 /// 선택된 참가자를 (종목 × 연령 × 급수) 별로 묶어 Division 리스트 생성.
 ///
 /// - players:        선택된 참가자 (이미 _selected 필터 적용된 상태)
-/// - event:          '혼복'|'남복'|'여복'|'단식' 중 하나
+/// - event:          '혼복'|'남복'|'여복' 중 하나
 /// - ageLabels:      활성 연령 라벨 (전체 제외, '40','50' 등)
 /// - allAgeLabels:   ageMatches 매칭에 필요한 전체 라벨
 /// - gradeLabels:    활성 급수 라벨 ('A조','B조',...)
 /// - venueIdOf:      (event,age,grade)→venueId 조회 함수. 없으면 ''
 ///
 /// 한 Division 내 팀 구성:
-///   단식: 1인 1팀
 ///   복식(혼복/남복/여복): 2명 페어. 짝이 안 맞으면 마지막 1명은 BYE.
 /// 페어링 전략: gradeIndex(고수 우선) → 나이↓ → 이름. 슬라이딩 페어로 단순 매칭.
 List<Division> buildDivisions({
@@ -236,15 +448,15 @@ List<Division> buildDivisions({
   required List<String> gradeLabels,
   required bool Function(String, int, List<String>) ageMatches,
   String Function(String event, String age, String grade)? venueIdOf,
+  bool shuffle = false,
 }) {
   final List<Division> out = [];
-  final isSingles = event == '단식';
 
   // 종목별 성별 필터
   bool genderOk(Player p) {
     if (event == '남복') return p.gender == '남';
     if (event == '여복') return p.gender == '여';
-    return true; // 혼복/단식 — 성별 무관
+    return true; // 혼복 — 성별 무관
   }
 
   for (final age in ageLabels) {
@@ -254,10 +466,9 @@ List<Division> buildDivisions({
           .where((p) => p.grade == grade)
           .where((p) => ageMatches(age, p.age, allAgeLabels))
           .toList();
-      // 단식 3명, 복식 6명(=3팀) 미만이면 부서 미생성.
+      // 복식 6명(=3팀) 미만이면 부서 미생성.
       // determineFormat 이 n<3 에서 null 을 반환하므로 이중 안전망.
-      final minPool = isSingles ? 3 : 6;
-      if (pool.length < minPool) continue;
+      if (pool.length < 6) continue;
 
       pool.sort((a, b) {
         final g = a.gradeIndex.compareTo(b.gradeIndex);
@@ -266,35 +477,59 @@ List<Division> buildDivisions({
         if (ag != 0) return ag;
         return a.name.compareTo(b.name);
       });
+      // shuffle=true 면 정렬을 흩어 매번 다른 페어링이 나오게 한다.
+      // 다른-클럽/반대-성별 우선 정책은 partnerIdx 검색이 그대로 유지.
+      if (shuffle) pool.shuffle();
 
+      // 복식: 가능하면 다른 클럽 선수끼리 페어링. 혼복은 남녀 1:1 필수.
+      // 정렬 순서(급수→나이→이름)를 기준으로, 각 페어 선택 시 가장 가까운
+      // 다른-클럽 파트너를 우선 선택. 동일 클럽만 남은 경우에 한해 동일 클럽 페어.
+      // 혼복 우선순위: 반대 성별 + 다른 클럽 → 반대 성별(동일 클럽) → 매칭 불가 시
+      // 남은 선수는 BYE (반대 성별 부족으로 페어 못 만듦).
+      // 클럽명 표시: 두 선수 클럽이 다르면 두 줄, 같으면 한 줄. 각 8글자까지.
+      String trimClub(String s) =>
+          s.length > 8 ? '${s.substring(0, 8)}…' : s;
       final teams = <TeamData>[];
-      if (isSingles) {
-        for (int i = 0; i < pool.length; i++) {
-          teams.add(TeamData(
-            name: pool[i].clubName.isEmpty ? '무소속' : pool[i].clubName,
-            players: [pool[i].name],
-          ));
+      final remaining = List<Player>.from(pool);
+      final isMixed = event == '혼복';
+      while (remaining.length >= 2) {
+        final p1 = remaining.removeAt(0);
+        int partnerIdx;
+        if (isMixed) {
+          // 반대 성별 + 다른 클럽 우선.
+          partnerIdx = remaining.indexWhere(
+              (p) => p.gender != p1.gender && p.clubId != p1.clubId);
+          if (partnerIdx == -1) {
+            // 반대 성별만이라도.
+            partnerIdx =
+                remaining.indexWhere((p) => p.gender != p1.gender);
+          }
+          if (partnerIdx == -1) {
+            // 반대 성별이 모두 소진. p1 포함 남은 동성은 모두 BYE.
+            break;
+          }
+        } else {
+          // 남복/여복: 다른 클럽 우선, 없으면 동일 클럽.
+          partnerIdx = remaining.indexWhere((p) => p.clubId != p1.clubId);
+          if (partnerIdx == -1) partnerIdx = 0;
         }
-      } else {
-        // 복식: 1-2, 3-4, ... 인접 페어.
-        // 두 선수가 다른 클럽이면 두 클럽 모두 표시 (\n 두 줄). 같으면 단일.
-        // 클럽명은 각각 8글자까지 (초과 시 …).
-        String trimClub(String s) =>
-            s.length > 8 ? '${s.substring(0, 8)}…' : s;
-        for (int i = 0; i < pool.length; i += 2) {
-          if (i + 1 >= pool.length) break;
-          final p1 = pool[i];
-          final p2 = pool[i + 1];
-          final raw1 = p1.clubName.isEmpty ? '무소속' : p1.clubName;
-          final raw2 = p2.clubName.isEmpty ? '무소속' : p2.clubName;
-          final c1 = trimClub(raw1);
-          final c2 = trimClub(raw2);
-          final clubName = raw1 == raw2 ? c1 : '$c1\n$c2';
-          teams.add(TeamData(
-            name: clubName,
-            players: [p1.name, p2.name],
-          ));
-        }
+        final p2 = remaining.removeAt(partnerIdx);
+        // 혼복: 표시 순서 [남, 여] 고정. 남복/여복은 페어링 순서 그대로.
+        final first = (isMixed && p1.gender != '남' && p2.gender == '남')
+            ? p2
+            : p1;
+        final second = identical(first, p1) ? p2 : p1;
+        final raw1 = first.clubName.isEmpty ? '무소속' : first.clubName;
+        final raw2 = second.clubName.isEmpty ? '무소속' : second.clubName;
+        final c1 = trimClub(raw1);
+        final c2 = trimClub(raw2);
+        // raw 가 같거나 trim 후 같으면(=긴 이름 잘렸을 때 동일) 한 줄로.
+        final clubName = (raw1 == raw2 || c1 == c2) ? c1 : '$c1\n$c2';
+        teams.add(TeamData(
+          name: clubName,
+          players: [first.name, second.name],
+          playerIds: [first.id, second.id],
+        ));
       }
 
       final fmt = determineFormat(teams.length);

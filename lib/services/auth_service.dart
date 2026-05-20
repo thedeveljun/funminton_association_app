@@ -78,6 +78,12 @@ class AuthService {
     _isLoggedIn = false;
   }
 
+  /// 개발용 — 비밀번호 검증 없이 세션을 강제로 로그인 상태로 만듦.
+  /// kDevSkipLogin 플래그와 함께만 사용. 출시 빌드에서는 호출 경로가 없어야 함.
+  static void devForceLogin() {
+    _isLoggedIn = true;
+  }
+
   /// 협회 정보 수정 (비번 제외).
   static Future<void> updateProfile({
     String? associationName,

@@ -1,4 +1,74 @@
+import 'bracket_models.dart';
 import 'venue.dart';
+
+/// 하루치 경기시간 설정. 일자별로 시작 시각과 중간 휴식이 다를 수 있다.
+/// day 1 은 [Tournament.matchStartTime] / [Tournament.breakStartTime] /
+/// [Tournament.breakDurationMinutes] 가 그대로 1일차 값으로 사용된다.
+/// day 2+ 만 [Tournament.extraDaySchedules] 에 인덱스 0 = 2일차, 1 = 3일차 … 로 저장.
+class DaySchedule {
+  /// "HH:mm" 24시간제. 비어 있으면 09:00 fallback.
+  final String startTime;
+
+  /// 휴식 사용 여부. false 면 break* 값은 무시.
+  final bool breakEnabled;
+
+  /// 휴식 시작 시각. "HH:mm". breakEnabled=false 이면 무시.
+  final String breakStartTime;
+
+  /// 휴식 길이(분). breakEnabled=false 이면 무시.
+  final int breakDurationMinutes;
+
+  const DaySchedule({
+    this.startTime = '09:00',
+    this.breakEnabled = false,
+    this.breakStartTime = '',
+    this.breakDurationMinutes = 0,
+  });
+
+  DaySchedule copyWith({
+    String? startTime,
+    bool? breakEnabled,
+    String? breakStartTime,
+    int? breakDurationMinutes,
+  }) =>
+      DaySchedule(
+        startTime: startTime ?? this.startTime,
+        breakEnabled: breakEnabled ?? this.breakEnabled,
+        breakStartTime: breakStartTime ?? this.breakStartTime,
+        breakDurationMinutes:
+            breakDurationMinutes ?? this.breakDurationMinutes,
+      );
+
+  Map<String, dynamic> toMap() => {
+        'start_time': startTime,
+        'break_enabled': breakEnabled ? 1 : 0,
+        'break_start_time': breakStartTime,
+        'break_duration_minutes': breakDurationMinutes,
+      };
+
+  factory DaySchedule.fromMap(Map<String, dynamic> m) {
+    final start = m['start_time'];
+    final bEnabled = m['break_enabled'];
+    final bStart = m['break_start_time'];
+    final bDur = m['break_duration_minutes'];
+    return DaySchedule(
+      startTime: (start is String &&
+              RegExp(r'^\d{1,2}:\d{2}$').hasMatch(start))
+          ? start
+          : '09:00',
+      breakEnabled: bEnabled == 1 || bEnabled == true,
+      breakStartTime: (bStart is String &&
+              RegExp(r'^\d{1,2}:\d{2}$').hasMatch(bStart))
+          ? bStart
+          : '',
+      breakDurationMinutes: () {
+        if (bDur is int && bDur >= 0) return bDur;
+        if (bDur is num && bDur >= 0) return bDur.toInt();
+        return 0;
+      }(),
+    );
+  }
+}
 
 /// 대회 분류
 /// - associationCup: 협회장기대회 (분담금 + 찬조 적용)
@@ -97,6 +167,69 @@ class Tournament {
   /// 빈 맵이면 화면 진입 시 모든 셀이 첫 경기장으로 폴백된다.
   final Map<String, String> assignMap;
 
+  // ── 생성된 대진표 ─────────────────────────
+  /// `BracketGeneratorTab` 에서 "대진표 생성" 시 만들어진 Division 리스트.
+  /// 앱 재실행 시 같은 상태로 복원하기 위해 영속화한다. 빈 리스트면 미생성.
+  final List<Division> divisions;
+
+  /// 대진표 화면에서 선택한 종목들. 콤마 구분 (예: '혼복' 또는 '혼복,남복,여복').
+  /// 다중 종목을 한 번에 생성하므로 콤마로 구분된 라벨을 저장한다.
+  /// divisions 와 짝지어 저장해야 종목 셀렉터까지 일관되게 복원된다.
+  final String bracketEvent;
+
+  /// 경기시간 탭에서 사용되는 종목 진행 우선순위. 콤마 구분.
+  /// 예: '혼복,남복,여복'. 비어 있으면 [allEventTypes] 기본 순서.
+  /// 동일 venue 안에서 이 순서대로 매치가 배치되고, 매치 번호도 이 순서로 연속됨.
+  final String eventPriority;
+
+  /// 경기시간 탭에서 사용되는 급수 진행 우선순위. 콤마 구분.
+  /// 예: 'A조,B조,C조,D조,초심조'. 비어 있으면 Player.gradeOrder 기본 순서.
+  /// **하드 게이트** — 같은 시각 같은 경기장에서 다른 급수 매치가 동시에 진행되지 않는다
+  /// (활성 급수의 매치가 모두 끝나야 다음 급수가 시작됨).
+  final String gradePriority;
+
+  /// 경기시간 탭에서 사용되는 연령 진행 우선순위. 콤마 구분.
+  /// 예: '20,30,40,50,60,70'. 비어 있으면 tournament.ageGroups 의 숫자 오름차순.
+  /// 정렬 키로만 사용 (소프트) — 같은 (event, grade) 안에서 어떤 연령 매치가 먼저 잡힐지 결정.
+  final String agePriority;
+
+  /// 첫 경기 시작 시각. "HH:mm" 24시간제. 비어 있으면 기본 '13:00'.
+  final String matchStartTime;
+
+  /// 경기당 소요 시간(분). 코트별 다음 라운드까지의 간격에 사용.
+  final int matchDurationMinutes;
+
+  /// 중간 휴식 시작 시각. "HH:mm". 비어 있으면 휴식 없음.
+  /// 예: 개회식 등으로 경기를 잠시 멈추는 시간대. 휴식 구간에 경기가 배정되지 않는다.
+  final String breakStartTime;
+
+  /// 중간 휴식 길이(분). 0 이면 휴식 없음.
+  final int breakDurationMinutes;
+
+  /// 2일차 이후 일자별 경기시간 설정. 인덱스 0 = 2일차, 1 = 3일차, …
+  /// 1일차는 [matchStartTime] / [breakStartTime] / [breakDurationMinutes] 가 그대로 사용.
+  /// 대회 일수가 1일이면 빈 리스트.
+  final List<DaySchedule> extraDaySchedules;
+
+  // ── Ownership / 멤버십 ────────────────────
+  /// 대회를 만든 사용자의 Firebase uid. 비어 있으면 legacy doc (백필 대상).
+  /// Firestore 보안규칙은 ownerUid 와 [memberUids] 로 read/write 권한을 게이트한다.
+  final String ownerUid;
+
+  /// 대회에 참여(invite 코드 join 포함)한 사용자 uid 목록. ownerUid 도 포함.
+  /// Firestore array-contains 쿼리로 "내가 속한 대회" 필터에 사용.
+  final List<String> memberUids;
+
+  /// 6자리 invite 코드 (영문대문자+숫자, 혼동 글자 제외). 다른 사용자가
+  /// 이 코드를 입력하면 memberUids 에 자신의 uid 가 자동 추가된다.
+  /// 비어 있으면 invite 비활성 (owner backfill 시 자동 생성).
+  final String inviteCode;
+
+  /// 멤버 식별용 displayName 비정규화 — key=uid, value=표시 이름 (email 또는
+  /// displayName). owner 가 멤버 관리 UI 에서 누가 join 했는지 확인하기 위해
+  /// 저장. join 시점 정보라 사용자가 후에 이름을 바꿔도 stale 가능.
+  final Map<String, String> memberInfo;
+
   Tournament({
     required this.id,
     required this.name,
@@ -123,7 +256,52 @@ class Tournament {
     String venueCourts = '',
     List<Venue>? venues,
     this.assignMap = const {},
+    this.divisions = const [],
+    this.bracketEvent = '혼복',
+    this.eventPriority = '',
+    this.gradePriority = '',
+    this.agePriority = '',
+    this.matchStartTime = '09:00',
+    this.matchDurationMinutes = 0,
+    this.breakStartTime = '',
+    this.breakDurationMinutes = 0,
+    this.extraDaySchedules = const [],
+    this.ownerUid = '',
+    this.memberUids = const [],
+    this.inviteCode = '',
+    this.memberInfo = const {},
   }) : venues = venues ?? _parseLegacy(venue, venueAddresses, venueCourts);
+
+  /// 일자별 스케줄을 1일차부터 N일차까지 합쳐서 반환한다.
+  /// 1일차는 [matchStartTime] / break* 값으로 합성, 2일차+는 [extraDaySchedules] 그대로.
+  /// 반환 리스트 길이 = 1 + extraDaySchedules.length.
+  List<DaySchedule> get allDaySchedules => [
+        DaySchedule(
+          startTime: matchStartTime,
+          breakEnabled: breakStartTime.isNotEmpty && breakDurationMinutes > 0,
+          breakStartTime: breakStartTime,
+          breakDurationMinutes: breakDurationMinutes,
+        ),
+        ...extraDaySchedules,
+      ];
+
+  /// 1-base 일자에 해당하는 [DaySchedule].
+  /// 1일차는 legacy 필드 합성, 2일차+는 [extraDaySchedules] 조회, 미저장이면 기본값.
+  DaySchedule daySchedule(int dayIdx) {
+    if (dayIdx <= 1) {
+      return DaySchedule(
+        startTime: matchStartTime,
+        breakEnabled: breakStartTime.isNotEmpty && breakDurationMinutes > 0,
+        breakStartTime: breakStartTime,
+        breakDurationMinutes: breakDurationMinutes,
+      );
+    }
+    final idx = dayIdx - 2;
+    if (idx >= 0 && idx < extraDaySchedules.length) {
+      return extraDaySchedules[idx];
+    }
+    return const DaySchedule();
+  }
 
   /// legacy 콤마 문자열 → List<Venue>
   static List<Venue> _parseLegacy(
@@ -162,6 +340,56 @@ class Tournament {
     'D조',
     '초심조',
   ];
+
+  /// 콤마 구분 bracketEvent → List<String>. 빈 값이면 ['혼복'] fallback.
+  /// 유효하지 않은 토큰은 걸러내고 [allEventTypes] 순서로 정렬해 반환.
+  List<String> get bracketEventList {
+    final raw = bracketEvent.trim();
+    if (raw.isEmpty) return const ['혼복'];
+    final set = raw
+        .split(',')
+        .map((s) => s.trim())
+        .where((s) => allEventTypes.contains(s))
+        .toSet();
+    if (set.isEmpty) return const ['혼복'];
+    return allEventTypes.where(set.contains).toList();
+  }
+
+  /// 경기 진행 종목 우선순위 리스트. **사용자가 명시한 항목만** 반환 (기본값 채움 없음).
+  /// 비어 있으면 빈 리스트 — 정렬/게이트 로직에서 "우선순위 미지정" 으로 처리.
+  List<String> get eventPriorityList {
+    final raw = eventPriority.trim();
+    if (raw.isEmpty) return const [];
+    return raw
+        .split(',')
+        .map((s) => s.trim())
+        .where((s) => allEventTypes.contains(s))
+        .toList();
+  }
+
+  /// 급수 진행 우선순위 리스트. **사용자가 명시한 항목만** 반환.
+  /// 비어 있으면 빈 리스트.
+  List<String> get gradePriorityList {
+    final raw = gradePriority.trim();
+    if (raw.isEmpty) return const [];
+    return raw
+        .split(',')
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+  }
+
+  /// 연령 진행 우선순위 리스트. **사용자가 명시한 항목만** 반환.
+  /// 비어 있으면 빈 리스트.
+  List<String> get agePriorityList {
+    final raw = agePriority.trim();
+    if (raw.isEmpty) return const [];
+    return raw
+        .split(',')
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+  }
 
   /// 콤마 구분 eventType → List<String>. 빈 값이면 ['혼복'] fallback.
   List<String> get eventTypeList {
@@ -280,6 +508,20 @@ class Tournament {
     List<String>? gradeGroups,
     List<Venue>? venues,
     Map<String, String>? assignMap,
+    List<Division>? divisions,
+    String? bracketEvent,
+    String? eventPriority,
+    String? gradePriority,
+    String? agePriority,
+    String? matchStartTime,
+    int? matchDurationMinutes,
+    String? breakStartTime,
+    int? breakDurationMinutes,
+    List<DaySchedule>? extraDaySchedules,
+    String? ownerUid,
+    List<String>? memberUids,
+    String? inviteCode,
+    Map<String, String>? memberInfo,
   }) =>
       Tournament(
         id: id,
@@ -308,6 +550,22 @@ class Tournament {
         venueCourts: venueCourts ?? this.venueCourts,
         venues: venues ?? this.venues,
         assignMap: assignMap ?? this.assignMap,
+        divisions: divisions ?? this.divisions,
+        bracketEvent: bracketEvent ?? this.bracketEvent,
+        eventPriority: eventPriority ?? this.eventPriority,
+        gradePriority: gradePriority ?? this.gradePriority,
+        agePriority: agePriority ?? this.agePriority,
+        matchStartTime: matchStartTime ?? this.matchStartTime,
+        matchDurationMinutes:
+            matchDurationMinutes ?? this.matchDurationMinutes,
+        breakStartTime: breakStartTime ?? this.breakStartTime,
+        breakDurationMinutes:
+            breakDurationMinutes ?? this.breakDurationMinutes,
+        extraDaySchedules: extraDaySchedules ?? this.extraDaySchedules,
+        ownerUid: ownerUid ?? this.ownerUid,
+        memberUids: memberUids ?? this.memberUids,
+        inviteCode: inviteCode ?? this.inviteCode,
+        memberInfo: memberInfo ?? this.memberInfo,
       );
 
   // ── DB 변환 ──────────────────────────────
@@ -339,6 +597,21 @@ class Tournament {
         'age_groups': ageGroups.join(','),
         'grade_groups': gradeGroups.join(','),
         'assign_map': assignMap,
+                'divisions': divisions.map((d) => d.toMap()).toList(),
+        'bracket_event': bracketEvent,
+        'event_priority': eventPriority,
+        'grade_priority': gradePriority,
+        'age_priority': agePriority,
+        'match_start_time': matchStartTime,
+        'match_duration_minutes': matchDurationMinutes,
+        'break_start_time': breakStartTime,
+        'break_duration_minutes': breakDurationMinutes,
+        'extra_day_schedules':
+            extraDaySchedules.map((d) => d.toMap()).toList(),
+        'ownerUid': ownerUid,
+        'memberUids': memberUids,
+        'inviteCode': inviteCode,
+        'memberInfo': memberInfo,
       };
 
   /// fromMap 단계에서 target_grade 컬럼을 읽을 때 라벨/'전체' 정규화.
@@ -448,6 +721,95 @@ class Tournament {
         if (raw is Map) {
           return raw.map(
               (k, v) => MapEntry(k.toString(), v?.toString() ?? ''));
+        }
+        return const <String, String>{};
+      }(),
+      divisions: () {
+        final raw = m['divisions'];
+        if (raw is List) {
+          return raw
+              .whereType<Map>()
+              .map((e) => Division.fromMap(Map<String, dynamic>.from(e)))
+              .toList();
+        }
+        return const <Division>[];
+      }(),
+      bracketEvent: () {
+        final raw = m['bracket_event'];
+        if (raw is String && raw.isNotEmpty) return raw;
+        return '혼복';
+      }(),
+      eventPriority: () {
+        final raw = m['event_priority'];
+        if (raw is String) return raw;
+        return '';
+      }(),
+      gradePriority: () {
+        final raw = m['grade_priority'];
+        if (raw is String) return raw;
+        return '';
+      }(),
+      agePriority: () {
+        final raw = m['age_priority'];
+        if (raw is String) return raw;
+        return '';
+      }(),
+      matchStartTime: () {
+        final raw = m['match_start_time'];
+        if (raw is String && RegExp(r'^\d{1,2}:\d{2}$').hasMatch(raw)) {
+          return raw;
+        }
+        return '09:00';
+      }(),
+      matchDurationMinutes: () {
+        final raw = m['match_duration_minutes'];
+        if (raw is int && raw >= 0) return raw;
+        if (raw is num && raw >= 0) return raw.toInt();
+        return 0;
+      }(),
+      breakStartTime: () {
+        final raw = m['break_start_time'];
+        if (raw is String && RegExp(r'^\d{1,2}:\d{2}$').hasMatch(raw)) {
+          return raw;
+        }
+        return '';
+      }(),
+      breakDurationMinutes: () {
+        final raw = m['break_duration_minutes'];
+        if (raw is int && raw >= 0) return raw;
+        if (raw is num && raw >= 0) return raw.toInt();
+        return 0;
+      }(),
+      extraDaySchedules: () {
+        final raw = m['extra_day_schedules'];
+        if (raw is List) {
+          return raw
+              .whereType<Map>()
+              .map((e) => DaySchedule.fromMap(Map<String, dynamic>.from(e)))
+              .toList();
+        }
+        return const <DaySchedule>[];
+      }(),
+      ownerUid: () {
+        final raw = m['ownerUid'];
+        return raw is String ? raw : '';
+      }(),
+      memberUids: () {
+        final raw = m['memberUids'];
+        if (raw is List) {
+          return raw.whereType<String>().toList();
+        }
+        return const <String>[];
+      }(),
+      inviteCode: () {
+        final raw = m['inviteCode'];
+        return raw is String ? raw : '';
+      }(),
+      memberInfo: () {
+        final raw = m['memberInfo'];
+        if (raw is Map) {
+          return raw.map((k, v) =>
+              MapEntry(k.toString(), v?.toString() ?? ''));
         }
         return const <String, String>{};
       }(),

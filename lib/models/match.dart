@@ -113,7 +113,7 @@ class Match {
 
 /// 종별·연령·급수별 경기장 배정 키
 class AssignKey {
-  final String event; // '혼복'|'남복'|'여복'|'단식'
+  final String event; // '혼복'|'남복'|'여복'
   final String decadeKey; // '20','30','40','50','60','70'
   final String grade; // 'A','B','C','D','초심'
 

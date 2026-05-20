@@ -6,34 +6,48 @@ import 'package:excel/excel.dart' as xl;
 import 'package:path_provider/path_provider.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:share_plus/share_plus.dart';
+import '../../core/theme/app_colors.dart';
 import '../../models/player.dart';
 import '../../services/sample_data.dart';
 
-const _blue = Color(0xFF2563EB);
-const _ink = Color(0xFF0D1B3E);
-const _muted = Color(0xFF9BA8BB);
-const _subtitle = Color(0xFF4B5563);
-const _green = Color(0xFF22A06B);
-const _red = Color(0xFFB91C1C);
-const _soft = Color(0xFFF4F6FA);
-const _warnBg = Color(0xFFFEF3C7);
+/// 주 액션 색 — '직접 입력' 화면과 동일한 인디고로 통일.
+const _primaryAction = Color(0xFF3730A3);
+
+// 로컬 별칭 — 다른 호출부 변경 없이 톤만 디자인 시스템에 맞춤.
+const _blue = _primaryAction;
+const _ink = AppColors.text;
+const _muted = AppColors.muted;
+const _subtitle = AppColors.text2;
+const _green = AppColors.green2;
+const _red = AppColors.red;
+const _soft = AppColors.bg;
+const _warnBg = AppColors.amber2;
 const _warnBorder = Color(0xFFFCD34D);
 const _warnIcon = Color(0xFFB45309);
-const _warnText = Color(0xFF92400E);
+const _warnText = AppColors.amberText;
 
 const _assetPath = 'assets/excel/대회_참가신청_샘플.xlsx';
 const _sampleName = '대회_참가신청_샘플.xlsx';
-const _validEvents = ['혼복', '남복', '여복', '단식'];
+const _validEvents = ['혼복', '남복', '여복'];
 
 /// 한 행의 신청 데이터 (in-session, 영속화 X).
 class EntryRow {
   final String name;
   final String clubName;
-  final String event; // 혼복 / 남복 / 여복 / 단식
+  final String event; // 혼복 / 남복 / 여복
   final String grade; // 정규화 후
   final String partnerName;
   final String partnerClubName; // 파트너가 타클럽일 수 있음. 같은 클럽이면 clubName 과 동일.
   final String phone;
+  final String birthDate; // 6자리 YYMMDD 정규화 후. 비어 있으면 단체보험 가입 불가.
+
+  /// 파트너 생년월일(6자리 YYMMDD). 파트너가 자기 클럽 양식을 따로 안 올린 경우
+  /// 이 값으로 파트너를 신규 선수로 자동 등록하여 단체보험 가입에 사용.
+  final String partnerBirthDate;
+
+  /// 파트너 연락처. 동일 목적.
+  final String partnerPhone;
+
   EntryRow({
     required this.name,
     required this.clubName,
@@ -42,13 +56,16 @@ class EntryRow {
     required this.partnerName,
     required this.partnerClubName,
     required this.phone,
+    required this.birthDate,
+    this.partnerBirthDate = '',
+    this.partnerPhone = '',
   });
 }
 
 /// 업로드 결과: 호출자가 _selected 갱신 + 종목별 카운트 표시에 사용.
 class EntryUploadResult {
   final List<String> selectedPlayerIds;
-  final Map<String, int> eventCounts; // 혼복/남복/여복/단식
+  final Map<String, int> eventCounts; // 혼복/남복/여복
   final int newPlayerCount;
   final int unmatchedPartnerCount;
   EntryUploadResult({
@@ -78,7 +95,6 @@ String _normalizeEvent(String raw) {
   if (s == '혼복' || s == '혼합복식' || s == 'XD') return '혼복';
   if (s == '남복' || s == '남자복식' || s == 'MD') return '남복';
   if (s == '여복' || s == '여자복식' || s == 'WD') return '여복';
-  if (s == '단식' || s == 'MS' || s == 'WS' || s == '싱글') return '단식';
   return s;
 }
 
@@ -118,74 +134,19 @@ class _EntryUploadScreenState extends State<EntryUploadScreen> {
     setState(() => _isLoading = true);
     try {
       final data = await rootBundle.load(_assetPath);
-      Directory? dir;
-      if (Platform.isAndroid) {
-        try {
-          dir = Directory('/storage/emulated/0/Download');
-          if (!await dir.exists()) {
-            dir = await getApplicationDocumentsDirectory();
-          }
-        } catch (_) {
-          dir = await getApplicationDocumentsDirectory();
-        }
-      } else {
-        dir = await getApplicationDocumentsDirectory();
-      }
-      final file = File('${dir.path}/$_sampleName');
+      // Android 11+ scoped storage 로 /storage/emulated/0/Download 직접 쓰기가 막힘.
+      // 앱 임시 디렉토리에 쓰고 시스템 공유 시트로 띄워 사용자가 원하는 위치(Drive·
+      // 카카오톡·다운로드 폴더 등)에 저장하도록 한다. 권한 요청 불필요.
+      final tempDir = await getTemporaryDirectory();
+      final file = File('${tempDir.path}/$_sampleName');
       await file.writeAsBytes(data.buffer.asUint8List());
       setState(() => _savedPath = file.path);
-      if (mounted) {
-        showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            title: Row(children: const [
-              Icon(Icons.check_circle_rounded, color: _green),
-              SizedBox(width: 8),
-              Text('다운로드 완료',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
-            ]),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('파일이 저장되었습니다.', style: TextStyle(fontSize: 14)),
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF1F5F9),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('저장 위치',
-                          style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: _muted)),
-                      const SizedBox(height: 4),
-                      Text(file.path,
-                          style: const TextStyle(
-                              fontSize: 12,
-                              color: _ink,
-                              fontFamily: 'monospace')),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              ElevatedButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('확인'),
-              ),
-            ],
-          ),
-        );
-      }
+      if (!mounted) return;
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        subject: _sampleName,
+        text: '대회 참가신청 샘플 파일',
+      );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -246,7 +207,7 @@ class _EntryUploadScreenState extends State<EntryUploadScreen> {
       // 헤더 행 자동 탐지
       int headerRowIdx = 1;
       int maxKeyword = 0;
-      const keywords = ['이름', '클럽', '종목', '급수'];
+      const keywords = ['이름', '클럽', '종목', '급수', '생년월일'];
       for (var i = 0; i < sheet.rows.length && i < 5; i++) {
         int matched = 0;
         for (final cell in sheet.rows[i]) {
@@ -309,6 +270,7 @@ class _EntryUploadScreenState extends State<EntryUploadScreen> {
       final errors = <String>[];
       int normalizedGradeCount = 0;
       int normalizedEventCount = 0;
+      int missingBirthCount = 0;
       for (var i = 0; i < rawRows.length; i++) {
         final row = rawRows[i];
         final name = _getValue(row, ['이름']);
@@ -323,6 +285,15 @@ class _EntryUploadScreenState extends State<EntryUploadScreen> {
         // 파트너 클럽이 비어있으면 본인과 같은 클럽으로 가정
         final partnerClub = partnerClubRaw.isEmpty ? clubName : partnerClubRaw;
         final phone = _getValue(row, ['연락처', '전화번호']);
+        final birthRaw =
+            _getValue(row, ['생년월일', '생년 월일', '생일', '주민번호', '주민등록번호']);
+        final birth = Player.normalizeBirthDate(birthRaw);
+        if (birth.isEmpty) missingBirthCount++;
+        final partnerBirthRaw = _getValue(
+            row, ['파트너생년월일', '파트너 생년월일', '파트너생일', '파트너 생일']);
+        final partnerBirth = Player.normalizeBirthDate(partnerBirthRaw);
+        final partnerPhone = _getValue(
+            row, ['파트너연락처', '파트너 연락처', '파트너전화번호', '파트너 전화번호']);
 
         if (name.isEmpty) {
           errors.add('${i + 1}번째 데이터: 이름 필수');
@@ -337,7 +308,7 @@ class _EntryUploadScreenState extends State<EntryUploadScreen> {
           continue;
         }
         if (!_validEvents.contains(event)) {
-          errors.add('${i + 1}번째: 종목은 혼복/남복/여복/단식 중 하나');
+          errors.add('${i + 1}번째: 종목은 혼복/남복/여복 중 하나');
           continue;
         }
         if (eventRaw != event) normalizedEventCount++;
@@ -352,6 +323,9 @@ class _EntryUploadScreenState extends State<EntryUploadScreen> {
           partnerName: partner,
           partnerClubName: partnerClub,
           phone: phone,
+          birthDate: birth,
+          partnerBirthDate: partnerBirth,
+          partnerPhone: partnerPhone,
         );
       }
 
@@ -371,7 +345,6 @@ class _EntryUploadScreenState extends State<EntryUploadScreen> {
       // 수 있으므로 경고일 뿐 차단은 아님.
       int unmatchedPartner = 0;
       for (final e in entries) {
-        if (e.event == '단식') continue;
         if (e.partnerName.isEmpty) {
           unmatchedPartner++;
           continue;
@@ -385,7 +358,41 @@ class _EntryUploadScreenState extends State<EntryUploadScreen> {
         if (!found) unmatchedPartner++;
       }
 
+      // (이름+생년월일) 기준으로 기존 선수와 중복되는 항목 탐지.
+      // 매칭 성립하려면 양쪽 모두 생년월일이 있어야 함 (빈 값끼리는 비교 X).
+      final dupExistingNames = <String>[];
+      // 같은 엑셀 안에서 (이름+생년월일) 중복 — 같은 사람의 다중 종목 등록은
+      // 자연스러우므로 정보 수준 알림에 그친다.
+      final dupWithinExcel = <String>{};
+      final seenInExcel = <String>{};
+      for (final e in entries) {
+        if (e.birthDate.isEmpty) continue;
+        final key = '${e.name}|${e.birthDate}';
+        if (seenInExcel.contains(key)) {
+          dupWithinExcel.add(e.name);
+        } else {
+          seenInExcel.add(key);
+        }
+        final hit = SampleData.players.any(
+            (p) => p.name == e.name && p.birthDate == e.birthDate);
+        if (hit && !dupExistingNames.contains(e.name)) {
+          dupExistingNames.add(e.name);
+        }
+      }
+
       final warnings = <String>[];
+      if (dupExistingNames.isNotEmpty) {
+        final preview = dupExistingNames.take(3).join(', ');
+        final more = dupExistingNames.length > 3
+            ? ' 외 ${dupExistingNames.length - 3}명'
+            : '';
+        warnings.add(
+            '이미 등록된 선수 ${dupExistingNames.length}명 ($preview$more) — 기존 선수로 합쳐서 등록됩니다');
+      }
+      if (dupWithinExcel.isNotEmpty) {
+        warnings.add(
+            '엑셀 내 동명·동일 생년월일 ${dupWithinExcel.length}명 — 같은 사람으로 처리됩니다');
+      }
       if (normalizedGradeCount > 0) {
         warnings.add('급수 자동 정규화 $normalizedGradeCount건 (예: A → A조)');
       }
@@ -395,6 +402,10 @@ class _EntryUploadScreenState extends State<EntryUploadScreen> {
       if (unmatchedPartner > 0) {
         warnings
             .add('파트너 페어 미매칭 $unmatchedPartner건 — 같은 엑셀에 두 사람이 같이 있어야 함');
+      }
+      if (missingBirthCount > 0) {
+        warnings.add(
+            '생년월일 누락 $missingBirthCount건 — 단체보험 가입에 필요하니 가급적 채워주세요');
       }
       if (rawRows.length != entries.length) {
         warnings.add('중복 ${rawRows.length - entries.length}건 마지막 값으로 덮어씀');
@@ -417,55 +428,106 @@ class _EntryUploadScreenState extends State<EntryUploadScreen> {
     if (_preview.isEmpty) return;
 
     final selected = {...widget.existingSelected};
-    final eventCounts = {'혼복': 0, '남복': 0, '여복': 0, '단식': 0};
+    final eventCounts = {'혼복': 0, '남복': 0, '여복': 0};
     int newPlayerCount = 0;
     int unmatchedPartner = 0;
 
     int seq = SampleData.players.length;
-    for (final e in _preview) {
-      // 이름+클럽으로 매칭. 없으면 자동 신규 등록.
+    // 신규 선수 등록 또는 기존 매칭. 이름+생년월일(1순위) → 이름+클럽(2순위) → 신규.
+    Player? findOrCreatePlayer({
+      required String name,
+      required String clubName,
+      required String event,
+      required String grade,
+      required String phone,
+      required String birthDate,
+    }) {
+      if (name.isEmpty || clubName.isEmpty) return null;
       Player? p;
-      for (final pl in SampleData.players) {
-        if (pl.name == e.name && pl.clubName == e.clubName) {
-          p = pl;
-          break;
+      if (birthDate.isNotEmpty) {
+        for (final pl in SampleData.players) {
+          if (pl.name == name && pl.birthDate == birthDate) {
+            p = pl;
+            break;
+          }
+        }
+      }
+      if (p == null) {
+        for (final pl in SampleData.players) {
+          if (pl.name == name && pl.clubName == clubName) {
+            p = pl;
+            break;
+          }
         }
       }
       if (p == null) {
         seq++;
         final club =
-            SampleData.clubs.where((c) => c.name == e.clubName).firstOrNull;
+            SampleData.clubs.where((c) => c.name == clubName).firstOrNull;
         p = Player(
           id: 'player_${DateTime.now().millisecondsSinceEpoch}_$seq',
-          name: e.name,
-          gender: e.event == '여복' ? '여' : '남',
-          grade: e.grade.isEmpty ? 'C조' : e.grade,
+          name: name,
+          gender: event == '여복' ? '여' : '남',
+          grade: grade.isEmpty ? 'C조' : grade,
           clubId: club?.id ?? '',
-          clubName: e.clubName,
-          phone: e.phone,
-          birthDate: '',
-          age: 0,
+          clubName: clubName,
+          phone: phone,
+          birthDate: birthDate,
+          age: Player.calcAgeFromBirthDate(birthDate),
           regNumber: '2026-${seq.toString().padLeft(4, '0')}',
         );
         SampleData.players.add(p);
         newPlayerCount++;
       }
+      return p;
+    }
+
+    for (final e in _preview) {
+      // 본인 등록·매칭.
+      final p = findOrCreatePlayer(
+        name: e.name,
+        clubName: e.clubName,
+        event: e.event,
+        grade: e.grade,
+        phone: e.phone,
+        birthDate: e.birthDate,
+      );
+      if (p == null) continue;
       selected.add(p.id);
       if (eventCounts.containsKey(e.event)) {
         eventCounts[e.event] = eventCounts[e.event]! + 1;
       }
 
-      if (e.event != '단식') {
-        if (e.partnerName.isEmpty) {
-          unmatchedPartner++;
+      if (e.partnerName.isEmpty) {
+        unmatchedPartner++;
+      } else {
+        // 파트너가 같은 _preview 에 자체 row 로 등장하는지 확인 (정상 페어).
+        final pairOk = _preview.any((o) =>
+            o.event == e.event &&
+            o.name == e.partnerName &&
+            o.clubName == e.partnerClubName &&
+            o.partnerName == e.name &&
+            o.partnerClubName == e.clubName);
+        if (pairOk) continue; // 파트너가 자기 row 처리 시 등록됨.
+
+        // 파트너 자체 row 없음 — 이 row 의 파트너 정보로 신규 등록 시도.
+        final partnerPlayer = findOrCreatePlayer(
+          name: e.partnerName,
+          clubName: e.partnerClubName,
+          // 혼복은 파트너 성별이 반대인 경우가 많지만 알 수 없으므로 단순화:
+          // 남복/혼복 → 남, 여복 → 여 로 일단 등록 (사용자가 추후 보정).
+          event: e.event == '여복' ? '여복' : '남복',
+          grade: e.grade,
+          phone: e.partnerPhone,
+          birthDate: e.partnerBirthDate,
+        );
+        if (partnerPlayer != null) {
+          selected.add(partnerPlayer.id);
+          if (eventCounts.containsKey(e.event)) {
+            eventCounts[e.event] = eventCounts[e.event]! + 1;
+          }
         } else {
-          final ok = _preview.any((o) =>
-              o.event == e.event &&
-              o.name == e.partnerName &&
-              o.clubName == e.partnerClubName &&
-              o.partnerName == e.name &&
-              o.partnerClubName == e.clubName);
-          if (!ok) unmatchedPartner++;
+          unmatchedPartner++;
         }
       }
     }
@@ -523,9 +585,11 @@ class _EntryUploadScreenState extends State<EntryUploadScreen> {
       backgroundColor: _soft,
       appBar: AppBar(
         elevation: 0,
+        backgroundColor: AppColors.surface,
+        surfaceTintColor: AppColors.surface,
         centerTitle: false,
-        titleSpacing: -4,
-        leadingWidth: 34,
+        titleSpacing: 0,
+        leadingWidth: 40,
         leading: IconButton(
           padding: EdgeInsets.zero,
           constraints: const BoxConstraints(),
@@ -534,7 +598,14 @@ class _EntryUploadScreenState extends State<EntryUploadScreen> {
         ),
         title: const Text('대회 참가신청 업로드',
             style: TextStyle(
-                fontSize: 19, fontWeight: FontWeight.w700, color: _ink)),
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                color: _ink,
+                letterSpacing: -0.3)),
+        bottom: const PreferredSize(
+          preferredSize: Size.fromHeight(1),
+          child: Divider(height: 1, thickness: 1, color: AppColors.divider),
+        ),
       ),
       body: _isLoading
           ? const Center(
@@ -651,8 +722,8 @@ class _EntryUploadScreenState extends State<EntryUploadScreen> {
                   const SizedBox(height: 8),
                   _StepCard(
                     step: '2',
-                    title: '파일 선택',
-                    subtitle: '여러 클럽 파일을 순서대로 올리면 자동 누적됩니다',
+                    title: '업로드 파일 선택',
+                    subtitle: '여러 파일을 순서대로 올리면 누적',
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
@@ -798,6 +869,12 @@ class _EntryUploadScreenState extends State<EntryUploadScreen> {
                                                   fontWeight: FontWeight.w700,
                                                   color: _blue))),
                                       DataColumn(
+                                          label: Text('생년월일',
+                                              style: TextStyle(
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w700,
+                                                  color: _blue))),
+                                      DataColumn(
                                           label: Text('파트너',
                                               style: TextStyle(
                                                   fontSize: 12,
@@ -829,6 +906,16 @@ class _EntryUploadScreenState extends State<EntryUploadScreen> {
                                                   style: const TextStyle(
                                                       fontSize: 12,
                                                       color: _ink))),
+                                              DataCell(Text(
+                                                  e.birthDate.isEmpty
+                                                      ? '—'
+                                                      : e.birthDate,
+                                                  style: TextStyle(
+                                                      fontSize: 12,
+                                                      color: e.birthDate
+                                                              .isEmpty
+                                                          ? _muted
+                                                          : _ink))),
                                               DataCell(Text(e.partnerName,
                                                   style: const TextStyle(
                                                       fontSize: 12,
@@ -914,11 +1001,7 @@ class _StepCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: const Color(0xFFD1D9E6), width: 1.2),
-          boxShadow: const [
-            BoxShadow(
-                color: Color(0x08000000), blurRadius: 6, offset: Offset(0, 1)),
-          ],
+          border: Border.all(color: const Color(0xFFB8C9F0), width: 2),
         ),
         padding: const EdgeInsets.all(12),
         child: Column(

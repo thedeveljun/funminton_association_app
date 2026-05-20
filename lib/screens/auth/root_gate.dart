@@ -5,6 +5,9 @@ import '../home/home_screen.dart';
 import 'login_screen.dart';
 import 'register_screen.dart';
 
+/// 개발용 — true 면 로그인 화면을 건너뛰고 바로 홈으로 진입. 출시 전 false 로 변경.
+const bool kDevSkipLogin = true;
+
 /// 진입점 분기 위젯.
 /// - 미등록 → RegisterScreen
 /// - 등록됨 + 미로그인 → LoginScreen
@@ -60,6 +63,10 @@ class _RootGateState extends State<RootGate> {
       return RegisterScreen(onDone: _onAuthSuccess);
     }
     if (!AuthService.isLoggedIn) {
+      if (kDevSkipLogin) {
+        AuthService.devForceLogin();
+        return HomeScreen(onLogout: _onLogout);
+      }
       return LoginScreen(onDone: _onAuthSuccess);
     }
     return HomeScreen(onLogout: _onLogout);

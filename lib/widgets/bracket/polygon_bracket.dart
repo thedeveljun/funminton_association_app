@@ -57,10 +57,13 @@ class PolygonBracketPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final cx = size.width / 2;
-    // 다각형 중심을 캔버스 가운데로 두고 반경을 줄여 라벨이 캔버스 안에 들어오게 한다.
-    // 라벨은 정점에서 labelDist 만큼 더 바깥에 그려지므로 r 을 너무 키우면 잘림.
-    final cy = size.height * 0.50;
-    final r = math.min(size.width / 2, size.height / 2) * 0.50;
+    // 다각형 중심 y. 삼각형(n=3)은 정점이 위·아래·아래 비대칭이라
+    // 윗 정점 라벨이 캔버스 상단에 너무 붙고 아래는 여백이 큰 문제 보정 — 중심을 아래로 내림.
+    final cy = teams == 3 ? size.height * 0.58 : size.height * 0.50;
+    // 반경 계수 — n=4(사각형)는 정점이 모서리 부근에 위치해 라벨이 캔버스 가장자리에
+    // 닿아 잘릴 위험이 가장 큼. 다른 다각형보다 더 작은 계수로 안쪽으로 끌어들임.
+    final radiusFactor = teams == 4 ? 0.42 : 0.50;
+    final r = math.min(size.width / 2, size.height / 2) * radiusFactor;
     final n = teams;
     // 4팀(정사각형)은 변이 수평/수직이 되도록 -45° 시작 (정점 = 1.5/4.5/7.5/10.5시).
     // 그 외 다각형은 12시 방향 정점에서 시작.
@@ -78,77 +81,99 @@ class PolygonBracketPainter extends CustomPainter {
       ..strokeWidth = 1.2
       ..style = PaintingStyle.stroke;
 
-    int matchIdx = 0;
+    // (i,j) 변이 그리는 매치를 팀 인덱스로 정확히 매칭.
+    // 이전 버전은 변 iteration 순서(matchIdx)로 matches 를 단순 매핑해서, round-robin
+    // 순서(라운드별)로 생성된 matches 와 어긋나 같은 팀이 동시에 두 변에 표시되는
+    // 버그가 있었음 — 시간(라운드)이 다른 변에 잘못 붙는 사례 발생.
+    MatchInfo? findMatchByPair(int i, int j) {
+      if (matches == null) return null;
+      for (final m in matches!) {
+        if ((m.team1Index == i && m.team2Index == j) ||
+            (m.team1Index == j && m.team2Index == i)) {
+          return m;
+        }
+      }
+      return null;
+    }
+
     for (int i = 0; i < n; i++) {
       for (int j = i + 1; j < n; j++) {
         canvas.drawLine(points[i], points[j], edgePaint);
 
         // 외곽 변 = 인접 정점. 별모양 안쪽 변 = 대각선.
         final isOuterEdge = (j - i == 1) || (i == 0 && j == n - 1);
-        // 모든 변 라벨 표시.
-        final showLabel = matches != null && matchIdx < matches!.length;
+        final m = findMatchByPair(i, j);
+        if (m == null) continue;
 
-        if (showLabel) {
-          final m = matches![matchIdx];
-          double t = 0.5;
-          bool rotate = false;
-          bool labelOffset = false; // 라벨을 변에서 외부 방향으로 떨어뜨릴지
+        double t = 0.5;
+        bool rotate = false;
+        bool labelOffset = false; // 라벨을 변에서 외부 방향으로 떨어뜨릴지
+        // n==4 의 좌·우 변 라벨은 기본보다 외부 여백을 더 줘서 폴리곤 변 선과 겹치지 않도록.
+        double matchOuterOffset = n <= 4 ? 18 : 14;
 
-          if (n == 4) {
-            // 사각형 — 기존 동작 유지 (외곽 변은 회전 X, 대각선만 회전)
-            if (i == 0 && j == 2) {
-              t = 0.70;
-              rotate = true;
-            } else if (i == 1 && j == 3) {
-              t = 0.70;
-              rotate = true;
-            }
-          } else if (n >= 5) {
-            // 오각형+ — 모든 변에 회전 라벨.
+        if (n == 3) {
+          // 삼각형 — 좌·우측 슬랜트 변 라벨이 변 선과 겹치지 않도록 외부 여백 증가.
+          // (0,1)=우측 슬랜트, (0,2)=좌측 슬랜트, (1,2)=바닥.
+          if ((i == 0 && j == 1) || (i == 0 && j == 2)) {
+            matchOuterOffset = 26;
+          }
+        } else if (n == 4) {
+          // 사각형 — 외곽 변은 회전 X, 대각선만 회전.
+          if (i == 0 && j == 1) {
+            // 우측 변: 라벨이 오른쪽 변 선과 떨어지도록 여백 증가.
+            matchOuterOffset = 26;
+          } else if (i == 2 && j == 3) {
+            // 좌측 변: 라벨이 왼쪽 변 선과 떨어지도록 여백 증가.
+            matchOuterOffset = 26;
+          } else if (i == 0 && j == 2) {
+            t = 0.70;
             rotate = true;
-            if (isOuterEdge) {
-              // 외곽 변: 변 옆에 라벨 (변 선이 라벨 중앙을 지나지 않음)
-              t = 0.5;
-              labelOffset = true;
+          } else if (i == 1 && j == 3) {
+            t = 0.70;
+            rotate = true;
+          }
+        } else if (n >= 5) {
+          // 오각형+ — 모든 변에 회전 라벨.
+          rotate = true;
+          if (isOuterEdge) {
+            // 외곽 변: 변 옆에 라벨 (변 선이 라벨 중앙을 지나지 않음)
+            t = 0.5;
+            labelOffset = true;
+          } else {
+            // 별 안쪽 변: 정점 측으로 분산하여 캔버스 중앙 겹침 방지.
+            if (n == 5) {
+              t = (j - i == 2) ? 0.30 : 0.70;
             } else {
-              // 별 안쪽 변: 정점 측으로 분산하여 캔버스 중앙 겹침 방지.
-              // (j-i==2) 인 변은 작은 인덱스(p1) 측, (j-i==3) 인 변은 큰 인덱스(p2) 측.
-              // 변 라인이 라벨 가운데를 통과(labelOffset 미적용).
-              if (n == 5) {
-                t = (j - i == 2) ? 0.30 : 0.70;
-              } else {
-                t = 0.35;
-              }
+              t = 0.35;
             }
           }
-          final p1 = points[i];
-          final p2 = points[j];
-          final mid = Offset(
-            p1.dx * (1 - t) + p2.dx * t,
-            p1.dy * (1 - t) + p2.dy * t,
-          );
-          double labelAngle = 0;
-          if (rotate) {
-            final ddx = p2.dx - p1.dx;
-            final ddy = p2.dy - p1.dy;
-            labelAngle = math.atan2(ddy, ddx);
-            // 글자가 거꾸로 표시되지 않도록 (-π/2, +π/2) 범위로 정규화.
-            if (labelAngle > math.pi / 2) labelAngle -= math.pi;
-            if (labelAngle < -math.pi / 2) labelAngle += math.pi;
-          }
-          _drawMatchLabel(
-            canvas,
-            mid,
-            cx,
-            cy,
-            '${m.court}코트 ${m.num_}',
-            m.time,
-            angle: labelAngle,
-            outerOffset: n <= 4 ? 18 : 14,
-            applyOffsetWhenRotated: labelOffset,
-          );
         }
-        matchIdx++;
+        final p1 = points[i];
+        final p2 = points[j];
+        final mid = Offset(
+          p1.dx * (1 - t) + p2.dx * t,
+          p1.dy * (1 - t) + p2.dy * t,
+        );
+        double labelAngle = 0;
+        if (rotate) {
+          final ddx = p2.dx - p1.dx;
+          final ddy = p2.dy - p1.dy;
+          labelAngle = math.atan2(ddy, ddx);
+          // 글자가 거꾸로 표시되지 않도록 (-π/2, +π/2) 범위로 정규화.
+          if (labelAngle > math.pi / 2) labelAngle -= math.pi;
+          if (labelAngle < -math.pi / 2) labelAngle += math.pi;
+        }
+        _drawMatchLabel(
+          canvas,
+          mid,
+          cx,
+          cy,
+          '${m.court}코트 ${m.num_}',
+          m.time,
+          angle: labelAngle,
+          outerOffset: matchOuterOffset,
+          applyOffsetWhenRotated: labelOffset,
+        );
       }
     }
 

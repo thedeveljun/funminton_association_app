@@ -11,6 +11,13 @@ class Player {
   final int age;
   final List<String> awards;
 
+  /// 이 선수가 출전(또는 등록)한 대회 ID 목록. 한 명이 여러 대회에 출전 가능.
+  /// Phase 2 부터 사실상 "어느 대회에 선택된 선수인가" 의 source of truth —
+  /// BracketScreen 의 `_selected` SP 캐시를 Firestore 화 한 것.
+  /// Firestore `players/{id}` 의 `tournamentIds` 배열 필드로 영속화.
+  /// 보안규칙(Phase 3)은 read/write 시 이 배열의 tournament ownership 으로 게이트.
+  final List<String> tournamentIds;
+
   const Player({
     required this.id,
     required this.name,
@@ -23,7 +30,34 @@ class Player {
     this.regNumber = '',
     this.age = 0,
     this.awards = const [],
+    this.tournamentIds = const [],
   });
+
+  Player copyWith({
+    String? name,
+    String? gender,
+    String? birthDate,
+    String? grade,
+    String? clubId,
+    String? clubName,
+    String? phone,
+    int? age,
+    List<String>? tournamentIds,
+  }) =>
+      Player(
+        id: id,
+        name: name ?? this.name,
+        gender: gender ?? this.gender,
+        birthDate: birthDate ?? this.birthDate,
+        grade: grade ?? this.grade,
+        clubId: clubId ?? this.clubId,
+        clubName: clubName ?? this.clubName,
+        phone: phone ?? this.phone,
+        regNumber: regNumber,
+        age: age ?? this.age,
+        awards: awards,
+        tournamentIds: tournamentIds ?? this.tournamentIds,
+      );
 
   // ── 연령대 ──────────────────────────────
   String get decadeLabel {
@@ -73,6 +107,7 @@ class Player {
         'reg_number': regNumber,
         'age': age,
         'awards': awards,
+        'tournamentIds': tournamentIds,
       };
 
   factory Player.fromMap(Map<String, dynamic> m) => Player(
@@ -87,6 +122,11 @@ class Player {
         regNumber: m['reg_number'] ?? '',
         age: m['age'] ?? 0,
         awards: (m['awards'] as List?)?.cast<String>() ?? const [],
+        tournamentIds: () {
+          final raw = m['tournamentIds'];
+          if (raw is List) return raw.whereType<String>().toList();
+          return const <String>[];
+        }(),
       );
 
   /// 다양한 입력 포맷을 6자리 YYMMDD 표준형으로 정규화.

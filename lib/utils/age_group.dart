@@ -11,6 +11,14 @@ library;
 bool ageMatches(String label, int age, List<String> allLabels) {
   if (label == '전체') return true;
 
+  // 병합 라벨 ("20·30" 처럼 가운뎃점으로 묶임) — 각 구성요소를 OR 로 평가.
+  if (label.contains('·')) {
+    for (final part in label.split('·')) {
+      if (ageMatches(part, age, allLabels)) return true;
+    }
+    return false;
+  }
+
   final norm = label.replaceAll('대', '');
   final start = int.tryParse(norm);
   if (start == null) return false;

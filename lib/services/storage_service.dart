@@ -29,12 +29,26 @@ class StorageService {
   static const _kClubShares = 'data_club_shares_v1';
   static const _kDonations = 'data_donations_v1';
   static const _kPlayerFeeUnit = 'cfg_player_fee_unit_v1';
+  static const _kFlagPrefix = 'flag_';
   static const _kBracketTypeFilter = 'ui_bracket_type_filter_v1';
   static const _kBracketActiveAgeGroups = 'ui_bracket_active_age_groups_v1';
   static const _kBracketActiveGrades = 'ui_bracket_active_grades_v1';
   static const _kBracketSelectedPlayers = 'ui_bracket_selected_players_v1';
+  static const _kBracketMatchScores = 'ui_bracket_match_scores_v2';
   static const _kBracketSchedule = 'ui_bracket_schedule_v1';
   static const _kBracketEntryEventCounts = 'ui_bracket_entry_event_counts_v1';
+  static const _kBracketAutoMergeAges = 'ui_bracket_auto_merge_ages_v1';
+
+  /// 일회성 부울 flag 저장/조회 (마이그레이션 적용 여부 등). 'flag_' prefix 로 격리.
+  static Future<void> setFlag(String name, bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('$_kFlagPrefix$name', value);
+  }
+
+  static Future<bool> getFlag(String name) async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool('$_kFlagPrefix$name') ?? false;
+  }
 
   // ─── CLUBS ────────────────────────────────────
 
@@ -226,11 +240,17 @@ class StorageService {
           String tournamentId) =>
       _loadBracketStringList(_kBracketSelectedPlayers, tournamentId);
 
-  // ─── 대진표 일정 (대회 일수 + 날짜) ───────────────
-  // `{tournamentId: {totalDays: N, dates: [d1,d2,d3,d4]}}` 형태로 저장.
+  // ─── 대진표 일정 (대회 일수 + 날짜 + 일자별 종별) ────
+  // `{tournamentId: {totalDays: N, dates: [d1,d2,d3,d4], dayEvents/dayEventAges/dayEventGrades: ...}}` 형태로 저장.
 
   static Future<void> saveBracketSchedule(
-      String tournamentId, int totalDays, List<String> dates) async {
+    String tournamentId,
+    int totalDays,
+    List<String> dates, {
+    Map<int, List<String>>? dayEvents,
+    Map<int, Map<String, Set<String>>>? dayEventAges,
+    Map<int, Map<String, Set<String>>>? dayEventGrades,
+  }) async {
     if (tournamentId.isEmpty) return;
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_kBracketSchedule);
@@ -240,11 +260,105 @@ class StorageService {
         map = Map<String, dynamic>.from(jsonDecode(raw));
       } catch (_) {/* 손상 시 새 맵 */}
     }
-    map[tournamentId] = {
+    Map<String, dynamic> serializeNested(
+            Map<int, Map<String, Set<String>>> src) =>
+        {
+          for (final dEntry in src.entries)
+            dEntry.key.toString(): {
+              for (final eEntry in dEntry.value.entries)
+                eEntry.key: eEntry.value.toList(),
+            },
+        };
+    final entry = <String, dynamic>{
       'totalDays': totalDays,
       'dates': dates,
     };
+    if (dayEvents != null) {
+      entry['dayEvents'] = {
+        for (final e in dayEvents.entries) e.key.toString(): e.value,
+      };
+    }
+    if (dayEventAges != null) {
+      entry['dayEventAges'] = serializeNested(dayEventAges);
+    }
+    if (dayEventGrades != null) {
+      entry['dayEventGrades'] = serializeNested(dayEventGrades);
+    }
+    map[tournamentId] = entry;
     await prefs.setString(_kBracketSchedule, jsonEncode(map));
+  }
+
+  // ─── '참가자 부족 시 자동 합치기' 스위치 (대회별) ──────────
+  // `{tournamentId: true|false}` 로 저장. ON 이면 부서 생성 시 인접 연령을 합쳐
+  // 각 (종목·급수) 셀이 최소 6명을 확보하도록 buildDivisions 가 전처리한다.
+
+  static Future<void> saveBracketAutoMergeAges(
+      String tournamentId, bool enabled) async {
+    if (tournamentId.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_kBracketAutoMergeAges);
+    Map<String, dynamic> map = {};
+    if (raw != null) {
+      try {
+        map = Map<String, dynamic>.from(jsonDecode(raw));
+      } catch (_) {/* 손상 시 새 맵 */}
+    }
+    map[tournamentId] = enabled;
+    await prefs.setString(_kBracketAutoMergeAges, jsonEncode(map));
+  }
+
+  static Future<bool> loadBracketAutoMergeAges(String tournamentId) async {
+    if (tournamentId.isEmpty) return false;
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_kBracketAutoMergeAges);
+    if (raw == null) return false;
+    try {
+      final map = Map<String, dynamic>.from(jsonDecode(raw));
+      final v = map[tournamentId];
+      return v is bool ? v : false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // ─── 매치별 점수 (점수판/수동입력 결과) ──────────────
+  /// 키 포맷: "{event}|{age}|{grade}|{groupName}|{matchNum}"
+  /// 값: MatchScore.toJson() (key/scoreA/scoreB/teamA/teamB/createdBy).
+  static Future<void> saveBracketMatchScores(String tournamentId,
+      Map<String, Map<String, dynamic>> scores) async {
+    if (tournamentId.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_kBracketMatchScores);
+    Map<String, dynamic> all = {};
+    if (raw != null) {
+      try {
+        all = Map<String, dynamic>.from(jsonDecode(raw));
+      } catch (_) {/* 손상 시 새 맵 */}
+    }
+    all[tournamentId] = scores;
+    await prefs.setString(_kBracketMatchScores, jsonEncode(all));
+  }
+
+  static Future<Map<String, Map<String, dynamic>>?> loadBracketMatchScores(
+      String tournamentId) async {
+    if (tournamentId.isEmpty) return null;
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_kBracketMatchScores);
+    if (raw == null) return null;
+    try {
+      final all = Map<String, dynamic>.from(jsonDecode(raw));
+      final entry = all[tournamentId];
+      if (entry is! Map) return null;
+      final out = <String, Map<String, dynamic>>{};
+      entry.forEach((k, v) {
+        if (v is Map) {
+          out[k.toString()] = Map<String, dynamic>.from(v);
+        }
+      });
+      return out;
+    } catch (_) {
+      return null;
+    }
   }
 
   // ─── 대진표 신청서 엑셀 누적 종목 카운트 ──────────
@@ -286,10 +400,16 @@ class StorageService {
     }
   }
 
-  /// 반환: `(totalDays, dates)` 레코드. 저장값 없으면 null.
+  /// 반환: `(totalDays, dates, dayEvents, dayEventAges, dayEventGrades)` 레코드.
   /// dates 길이는 0~4 가 일반적이지만 호출자가 안전하게 처리해야 함.
-  static Future<({int totalDays, List<String> dates})?> loadBracketSchedule(
-      String tournamentId) async {
+  static Future<
+      ({
+        int totalDays,
+        List<String> dates,
+        Map<int, List<String>> dayEvents,
+        Map<int, Map<String, Set<String>>> dayEventAges,
+        Map<int, Map<String, Set<String>>> dayEventGrades,
+      })?> loadBracketSchedule(String tournamentId) async {
     if (tournamentId.isEmpty) return null;
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_kBracketSchedule);
@@ -304,7 +424,46 @@ class StorageService {
       final dates = datesRaw is List
           ? datesRaw.map((e) => e.toString()).toList()
           : <String>[];
-      return (totalDays: totalDays, dates: dates);
+      Map<int, List<String>> parseMapList(dynamic raw) {
+        final result = <int, List<String>>{};
+        if (raw is Map) {
+          raw.forEach((k, v) {
+            final day = int.tryParse(k.toString());
+            if (day == null) return;
+            if (v is List) {
+              result[day] = v.map((e) => e.toString()).toList();
+            }
+          });
+        }
+        return result;
+      }
+      Map<int, Map<String, Set<String>>> parseNested(dynamic raw) {
+        final result = <int, Map<String, Set<String>>>{};
+        if (raw is Map) {
+          raw.forEach((k, v) {
+            final day = int.tryParse(k.toString());
+            if (day == null || v is! Map) return;
+            final inner = <String, Set<String>>{};
+            v.forEach((ek, ev) {
+              if (ev is List) {
+                inner[ek.toString()] = ev.map((x) => x.toString()).toSet();
+              }
+            });
+            result[day] = inner;
+          });
+        }
+        return result;
+      }
+      final dayEvents = parseMapList(m['dayEvents']);
+      final dayEventAges = parseNested(m['dayEventAges']);
+      final dayEventGrades = parseNested(m['dayEventGrades']);
+      return (
+        totalDays: totalDays,
+        dates: dates,
+        dayEvents: dayEvents,
+        dayEventAges: dayEventAges,
+        dayEventGrades: dayEventGrades,
+      );
     } catch (_) {
       return null;
     }

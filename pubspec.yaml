@@ -24,6 +24,11 @@ dependencies:
   share_plus: ^9.0.0
   crypto: ^3.0.3
   url_launcher: ^6.2.0
+  # bracket_app 에서 가져온 대진표/점수판 의존성 (Firebase 는 추가하지 않음)
+  flutter_tts: ^4.2.0
+  screenshot: ^3.0.0
+  pdf: ^3.10.8
+  printing: ^5.13.0
 
 dev_dependencies:
   flutter_test:

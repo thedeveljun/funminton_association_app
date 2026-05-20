@@ -1,21 +1,30 @@
 // 배드민턴 대진표 자동 생성 — 운영 화면 탭 본체
 //
 // 구조:
-//   1) 종목 셀렉터 (혼복/남복/여복/단식)
+//   1) 종목 셀렉터 (혼복/남복/여복)
 //   2) 코트 수
 //   3) "대진표 생성" 버튼
 //   4) 생성 후 → (종목 × 연령 × 급수) Division 카드 리스트
 //      각 카드는 펼치면 다각형/토너먼트 시각화 + 일정표
 
+import 'dart:async';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 import '../../core/theme/app_colors.dart';
 import '../../models/bracket_models.dart';
+import '../../models/match_score.dart';
 import '../../models/match.dart';
 import '../../models/player.dart';
 import '../../models/tournament.dart';
 import '../../models/venue.dart';
+import '../../services/analytics_service.dart';
 import '../../utils/age_group.dart';
 import '../../utils/bracket_logic.dart';
+import '../../utils/match_key.dart';
 import 'polygon_bracket.dart';
 import 'tournament_bracket.dart';
 
@@ -24,11 +33,38 @@ class BracketGeneratorTab extends StatefulWidget {
   final List<Player> selectedPlayers;
   final Map<AssignKey, String> assignMap;
 
+  /// 사용자가 참가자 탭에서 토글한 연령 칩(전체 제외). 비어 있으면 빈 대진표.
+  final Set<String> activeAgeGroups;
+
+  /// 사용자가 참가자 탭에서 토글한 급수 칩(전체 제외). 비어 있으면 빈 대진표.
+  final Set<String> activeGrades;
+
+  /// 종목 셀렉터·생성된 Division 리스트가 바뀔 때마다 호출.
+  /// divisions=null 은 "재생성 유도(=초기화)" 의미. 빈 리스트와 구분.
+  /// events 는 사용자가 선택한 종목 라벨 리스트 (예: ['혼복','남복','여복']).
+  final void Function(List<String> events, List<Division>? divisions)?
+      onChanged;
+
+  /// 경기시간 탭에서 입력된 매치 점수 + 팀 식별. _DivisionCard 매치 셀/순위표가
+  /// 이 값을 그대로 사용 — 저장된 teamA/teamB 가 현재 페어와 다르면 자동 무효화.
+  /// 키 빌드는 `utils/match_key.dart`.
+  final Map<String, MatchScore> matchScores;
+
+  /// 참가자 부족 시 인접 연령 자동 합치기 스위치. ON 이면 (종목·급수) 안에서
+  /// 인접 연령들을 묶어 각 셀이 최소 6명(=3팀)을 채우도록 한다.
+  /// 라벨은 '20·30' 처럼 가운뎃점으로 결합되며 [ageMatches] 가 처리.
+  final bool autoMergeAges;
+
   const BracketGeneratorTab({
     super.key,
     required this.tournament,
     this.selectedPlayers = const [],
     this.assignMap = const {},
+    this.activeAgeGroups = const {},
+    this.activeGrades = const {},
+    this.onChanged,
+    this.matchScores = const {},
+    this.autoMergeAges = false,
   });
 
   /// 활성 경기장 (코트 수 > 0) 만 반환.
@@ -40,18 +76,32 @@ class BracketGeneratorTab extends StatefulWidget {
 }
 
 class _BracketGeneratorTabState extends State<BracketGeneratorTab> {
-  static const List<String> _events = ['혼복', '남복', '여복', '단식'];
+  static const List<String> _events = ['혼복', '남복', '여복'];
 
-  String _event = '혼복';
+  /// 선택된 종목 셋. 다중 선택 — 체크된 종목 모두 한 번에 대진표가 생성됨.
+  final Set<String> _selectedEvents = {'혼복'};
   int _courts = 4;
 
   List<Division>? _divisions; // null = 미생성
   String? _expandedKey;
+  bool _generatingPdf = false;
+  /// 각 Division 카드의 GlobalKey — 펼침 시 ensureVisible 로 화면 상단에 노출.
+  final Map<String, GlobalKey> _cardKeys = {};
 
   @override
   void initState() {
     super.initState();
     _courts = widget.tournament.totalActiveCourts.clamp(1, 999);
+    // 영속화된 결과가 있으면 그대로 hydrate — 셔플 페어링 결과가 탭 전환 후에도
+    // 보존되도록. stale 가능성(참가자 변동 등)은 사용자가 명시적으로
+    // '대진표 다시 생성' 을 눌러 갱신하는 모델.
+    final saved = widget.tournament.divisions;
+    if (saved.isNotEmpty) {
+      _selectedEvents
+        ..clear()
+        ..addAll(widget.tournament.bracketEventList);
+      _divisions = saved;
+    }
   }
 
   String _keyOf(Division d) => '${d.event}|${d.ageGroup}|${d.grade}';
@@ -65,26 +115,124 @@ class _BracketGeneratorTabState extends State<BracketGeneratorTab> {
     }
   }
 
+  /// 현재 선택된 종목 셋을 표시 순서대로 정렬해 반환 (혼복→남복→여복).
+  List<String> get _orderedSelectedEvents =>
+      _events.where(_selectedEvents.contains).toList();
+
+  /// (종목·급수) 안에서 인접 연령을 합쳐 각 셀이 최소 6명을 채우도록 하는 라벨 리스트.
+  /// 사용 알고리즘:
+  /// 1) [ages] 순서대로 각 연령의 선수 수를 계산 (event/grade/gender 필터 반영).
+  /// 2) 누적 풀이 6 미만이면 다음 연령을 합쳐 누적 (가운뎃점 '·' 으로 라벨 결합).
+  /// 3) 누적 풀이 6 이상이 되면 라벨을 emit 하고 누적 초기화.
+  /// 4) 마지막에 남은 누적(여전히 6 미만)도 emit — 시각화를 위해 카드는 안 만들어지지만
+  ///    사용자가 확인할 수 있도록 빈 라벨로라도 둘 수 있음. 여기서는 6 미만이면 drop.
+  List<String> _computeMergedAgeLabels({
+    required String event,
+    required String grade,
+    required List<String> ages,
+    required List<String> allAges,
+  }) {
+    bool genderOk(Player p) {
+      if (event == '남복') return p.gender == '남';
+      if (event == '여복') return p.gender == '여';
+      return true;
+    }
+
+    int countFor(String age) => widget.selectedPlayers
+        .where(genderOk)
+        .where((p) => p.grade == grade)
+        .where((p) => ageMatches(age, p.age, allAges))
+        .length;
+
+    final out = <String>[];
+    final buf = <String>[];
+    int acc = 0;
+    for (final age in ages) {
+      buf.add(age);
+      acc += countFor(age);
+      if (acc >= 6) {
+        out.add(buf.join('·'));
+        buf.clear();
+        acc = 0;
+      }
+    }
+    // 마지막 누적이 6 미만이면, 가능하면 직전 라벨에 덧붙여 흡수 (드랍 방지).
+    if (buf.isNotEmpty) {
+      if (out.isNotEmpty) {
+        final last = out.removeLast();
+        out.add('$last·${buf.join('·')}');
+      } else {
+        // 단일 누적도 6 미만이고 이전 emit 도 없으면 그냥 drop — 부서 생성 불가.
+      }
+    }
+    return out;
+  }
+
   void _generate() {
     final t = widget.tournament;
-    final ages = activeAgeLabels(t);
-    final grades = activeGradeLabels(t);
-    final all = ages;
+    // 칩으로 활성화한 라벨만 사용. 비어있으면 빈 리스트 (대진표 미생성).
+    final ages = activeAgeLabels(t)
+        .where(widget.activeAgeGroups.contains)
+        .toList();
+    final grades = activeGradeLabels(t)
+        .where(widget.activeGrades.contains)
+        .toList();
+    // ageMatches 가 라벨 인접성 판단에 쓰는 전체 라벨 (활성 여부와 무관).
+    final allAges = activeAgeLabels(t);
 
-    final divisions = buildDivisions(
-      players: widget.selectedPlayers,
-      event: _event,
-      ageLabels: ages,
-      allAgeLabels: all,
-      gradeLabels: grades,
-      ageMatches: ageMatches,
-      venueIdOf: (event, age, grade) =>
-          widget.assignMap[AssignKey(event, age, grade)] ?? '',
-    );
+    // 첫 생성은 결정적(정렬 기반), 그 다음 호출부터는 셔플 페어링 — 사용자가
+    // '대진표 다시 생성' 을 누르면 새 조합이 나오도록.
+    final isReshuffle = _divisions != null;
+
+    // 선택된 종목 각각에 대해 buildDivisions 를 호출하고 결과를 이어 붙인다.
+    // 카드 표시 순서는 종목 셀렉터 노출 순서(혼복→남복→여복)를 따른다.
+    // autoMergeAges=true 면 (종목·급수)별로 인접 연령을 묶은 라벨을 생성해 전달.
+    final divisions = <Division>[];
+    for (final event in _orderedSelectedEvents) {
+      if (widget.autoMergeAges) {
+        for (final grade in grades) {
+          final mergedAges = _computeMergedAgeLabels(
+              event: event,
+              grade: grade,
+              ages: ages,
+              allAges: allAges);
+          divisions.addAll(buildDivisions(
+            players: widget.selectedPlayers,
+            event: event,
+            ageLabels: mergedAges,
+            allAgeLabels: allAges,
+            gradeLabels: [grade],
+            ageMatches: ageMatches,
+            venueIdOf: (event, age, grade) =>
+                widget.assignMap[
+                        AssignKey(event, age.split('·').first, grade)] ??
+                    '',
+            shuffle: isReshuffle,
+          ));
+        }
+      } else {
+        divisions.addAll(buildDivisions(
+          players: widget.selectedPlayers,
+          event: event,
+          ageLabels: ages,
+          allAgeLabels: allAges,
+          gradeLabels: grades,
+          ageMatches: ageMatches,
+          venueIdOf: (event, age, grade) =>
+              widget.assignMap[AssignKey(event, age, grade)] ?? '',
+          shuffle: isReshuffle,
+        ));
+      }
+    }
     setState(() {
       _divisions = divisions;
-      _expandedKey = divisions.isNotEmpty ? _keyOf(divisions.first) : null;
+      _expandedKey = null; // 모든 카드 접힘으로 시작 — 사용자가 눌러서 펼침.
     });
+    widget.onChanged?.call(_orderedSelectedEvents, divisions);
+    AnalyticsService.bracketGenerate(
+      tournamentId: widget.tournament.id,
+      divisionCount: divisions.length,
+    );
   }
 
   @override
@@ -100,7 +248,13 @@ class _BracketGeneratorTabState extends State<BracketGeneratorTab> {
           children: [
             _buildSettingsCard(),
             const SizedBox(height: 8),
-            _buildGenerateButton(),
+            Row(children: [
+              Expanded(child: _buildGenerateButton()),
+              if (_divisions != null && _divisions!.isNotEmpty) ...[
+                const SizedBox(width: 8),
+                _buildPdfButton(),
+              ],
+            ]),
             const SizedBox(height: 8),
             if (_divisions != null) ..._buildResults(),
             const SizedBox(height: 8),
@@ -126,7 +280,7 @@ class _BracketGeneratorTabState extends State<BracketGeneratorTab> {
               style: TextStyle(
                   fontWeight: FontWeight.bold, color: Color(0xFF1E3A8A))),
           const SizedBox(height: 6),
-          // 종목 셀렉터
+          // 종목 셀렉터 (다중 선택). 체크된 종목 모두 한 번에 대진표가 생성됨.
           Row(children: [
             const SizedBox(width: 60, child: Text('종목')),
             Expanded(
@@ -134,12 +288,23 @@ class _BracketGeneratorTabState extends State<BracketGeneratorTab> {
                 spacing: 6,
                 runSpacing: 6,
                 children: _events.map((e) {
-                  final on = e == _event;
+                  final on = _selectedEvents.contains(e);
                   return GestureDetector(
-                    onTap: () => setState(() {
-                      _event = e;
-                      _divisions = null; // 종목 바뀌면 재생성 유도
-                    }),
+                    onTap: () {
+                      setState(() {
+                        if (on) {
+                          // 마지막 한 개는 해제 불가 — 빈 셀렉션 방지.
+                          if (_selectedEvents.length > 1) {
+                            _selectedEvents.remove(e);
+                          }
+                        } else {
+                          _selectedEvents.add(e);
+                        }
+                        _divisions = null; // 셀렉션 바뀌면 재생성 유도
+                        _expandedKey = null;
+                      });
+                      widget.onChanged?.call(_orderedSelectedEvents, null);
+                    },
                     child: AnimatedContainer(
                       duration: const Duration(milliseconds: 120),
                       padding: const EdgeInsets.symmetric(
@@ -156,12 +321,28 @@ class _BracketGeneratorTabState extends State<BracketGeneratorTab> {
                           width: 1.4,
                         ),
                       ),
-                      child: Text(e,
-                          style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color:
-                                  on ? Colors.white : const Color(0xFF1E3A8A))),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            on
+                                ? Icons.check_box
+                                : Icons.check_box_outline_blank,
+                            size: 14,
+                            color: on
+                                ? Colors.white
+                                : const Color(0xFF1E3A8A),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(e,
+                              style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: on
+                                      ? Colors.white
+                                      : const Color(0xFF1E3A8A))),
+                        ],
+                      ),
                     ),
                   );
                 }).toList(),
@@ -209,6 +390,87 @@ class _BracketGeneratorTabState extends State<BracketGeneratorTab> {
         ],
       ),
     );
+  }
+
+  /// PDF 내보내기 버튼. 생성된 division 별로 카드를 차례로 펼쳐 캡처, A4 페이지로 묶어 공유.
+  Widget _buildPdfButton() {
+    return SizedBox(
+      height: 38,
+      child: ElevatedButton.icon(
+        onPressed: _generatingPdf ? null : _exportPdf,
+        icon: _generatingPdf
+            ? const SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(
+                    strokeWidth: 2, color: Colors.white),
+              )
+            : const Icon(Icons.picture_as_pdf, size: 18, color: Colors.white),
+        label: const Text('PDF',
+            style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: Colors.white)),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFFB91C1C),
+          disabledBackgroundColor: const Color(0xFFCBD5E1),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+          minimumSize: const Size(0, 38),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12)),
+        ),
+      ),
+    );
+  }
+
+  /// 생성된 모든 division 을 순서대로 펼쳐 카드 RepaintBoundary 를 캡처,
+  /// 한 페이지 한 division 으로 PDF 묶어 공유. 캡처가 끝나면 원래 펼침 상태로 복원.
+  Future<void> _exportPdf() async {
+    final divs = _divisions;
+    if (divs == null || divs.isEmpty) return;
+    final originalExpand = _expandedKey;
+    setState(() => _generatingPdf = true);
+    try {
+      final pdf = pw.Document();
+      for (final d in divs) {
+        final dKey = _keyOf(d);
+        // 1) 이 카드를 펼치고 다음 프레임 대기 — 본문 렌더 완료 보장.
+        setState(() => _expandedKey = dKey);
+        await WidgetsBinding.instance.endOfFrame;
+        // 큰 대진표 + 라벨 레이아웃이 안정될 충분한 지연.
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+        final cardKey = _cardKeys[dKey];
+        final ctx = cardKey?.currentContext;
+        if (ctx == null) continue;
+        final boundary = ctx.findRenderObject() as RenderRepaintBoundary?;
+        if (boundary == null) continue;
+        // pixelRatio 3.0 — 인쇄·확대 시도 선명하게.
+        final image = await boundary.toImage(pixelRatio: 3.0);
+        final byteData =
+            await image.toByteData(format: ui.ImageByteFormat.png);
+        if (byteData == null) continue;
+        final pdfImage = pw.MemoryImage(byteData.buffer.asUint8List());
+        pdf.addPage(pw.Page(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(20),
+          build: (c) => pw.Center(
+              child: pw.Image(pdfImage, fit: pw.BoxFit.contain)),
+        ));
+      }
+      if (pdf.document.pdfPageList.pages.isEmpty) return;
+      final bytes = await pdf.save();
+      final ts = DateTime.now().millisecondsSinceEpoch;
+      await Printing.sharePdf(
+          bytes: bytes, filename: 'bracket_$ts.pdf');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _expandedKey = originalExpand;
+          _generatingPdf = false;
+        });
+      }
+    }
   }
 
   Widget _buildGenerateButton() {
@@ -261,7 +523,7 @@ class _BracketGeneratorTabState extends State<BracketGeneratorTab> {
                 size: 36, color: Color(0xFF9CA3AF)),
             const SizedBox(height: 8),
             Text(
-              '$_event 으로 생성 가능한 부서가 없습니다.\n참가자/연령/급수 설정을 확인하세요.',
+              '${_orderedSelectedEvents.join("·")} 으로 생성 가능한 부서가 없습니다.\n참가자/연령/급수 설정을 확인하세요.',
               textAlign: TextAlign.center,
               style: const TextStyle(
                   fontSize: 14, color: Color(0xFF6B7280), height: 1.5),
@@ -278,19 +540,45 @@ class _BracketGeneratorTabState extends State<BracketGeneratorTab> {
     return [
       _buildSummaryCard(divs.length, totalTeams, totalMatches),
       const SizedBox(height: 6),
-      ...divs.map((d) => Padding(
+      ...divs.map((d) {
+        final dKey = _keyOf(d);
+        final cardKey = _cardKeys.putIfAbsent(dKey, () => GlobalKey());
+        return RepaintBoundary(
+          key: cardKey,
+          child: Padding(
             padding: const EdgeInsets.only(top: 1),
             child: _DivisionCard(
               division: d,
-              expanded: _keyOf(d) == _expandedKey,
+              expanded: dKey == _expandedKey,
               courts: _courts,
               venues: widget.activeVenues,
               assignMap: widget.assignMap,
-              onToggle: () => setState(() {
-                _expandedKey = _keyOf(d) == _expandedKey ? null : _keyOf(d);
-              }),
+              tournament: widget.tournament,
+              matchScores: widget.matchScores,
+              onToggle: () {
+                final willExpand = dKey != _expandedKey;
+                setState(() {
+                  _expandedKey = willExpand ? dKey : null;
+                });
+                if (willExpand) {
+                  // 펼침 후 다음 프레임에 카드 상단을 화면 위쪽으로 정렬 → 대진표가 하단에 노출.
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    final ctx = cardKey.currentContext;
+                    if (ctx != null) {
+                      Scrollable.ensureVisible(
+                        ctx,
+                        duration: const Duration(milliseconds: 300),
+                        alignment: 0.0,
+                        curve: Curves.easeOut,
+                      );
+                    }
+                  });
+                }
+              },
             ),
-          )),
+          ),
+        );
+      }),
     ];
   }
 
@@ -374,6 +662,8 @@ class _DivisionCard extends StatefulWidget {
   final List<Venue> venues;
   final Map<AssignKey, String> assignMap;
   final VoidCallback onToggle;
+  final Tournament tournament;
+  final Map<String, MatchScore> matchScores;
 
   const _DivisionCard({
     required this.division,
@@ -382,6 +672,8 @@ class _DivisionCard extends StatefulWidget {
     required this.venues,
     required this.assignMap,
     required this.onToggle,
+    required this.tournament,
+    this.matchScores = const {},
   });
 
   /// 현재 (event, age, grade) 에 배정된 venueId.
@@ -404,17 +696,9 @@ class _DivisionCard extends StatefulWidget {
     return null;
   }
 
-  /// 배정된 경기장의 코트 시작 번호 (활성 경기장 누적 합).
-  /// 1번 경기장 4코트 → 1~4. 2번 경기장 3코트 → 5~7.
-  int get startCourt {
-    final id = _resolvedVenueId;
-    int s = 1;
-    for (final v in venues) {
-      if (v.id == id) return s;
-      s += v.courts;
-    }
-    return 1;
-  }
+  /// 경기장별 로컬 코트 시작 번호. 항상 1.
+  /// 각 경기장이 자체적으로 1코트부터 시작하도록 함.
+  int get startCourt => 1;
 
   /// 배정된 경기장의 코트 수. 미배정이면 전체 합.
   int get assignedCourts {
@@ -468,11 +752,27 @@ class _DivisionCardState extends State<_DivisionCard> {
     for (int i = 0; i < idx; i++) {
       startNum += widget.division.format.groups[i].matches;
     }
+    final dur = widget.tournament.matchDurationMinutes;
+    // 같은 팀이 라운드 사이 한 슬롯 쉬도록 휴식 = 경기당 분.
+    // round-robin 특성상 모든 팀이 매 라운드 경기하므로 라운드 사이 휴식이
+    // 곧 개별 선수의 휴식이 됨.
+    final rest = dur;
+    final allocs = allocateGroups(
+      groups: widget.division.format.groups,
+      venueCourts: widget.assignedCourts,
+      matchMinutes: dur,
+      restMinutes: rest,
+    );
+    final a = allocs[idx];
     return generateMatches(
       group: g,
-      courts: widget.assignedCourts,
-      startCourt: widget.startCourt,
+      courts: a.parallelCourts,
+      startCourt: widget.startCourt + a.courtOffset,
       startMatchNum: startNum,
+      startTime: widget.tournament.matchStartTime,
+      matchMinutes: dur,
+      extraStartMinutes: a.extraStartMinutes,
+      restMinutes: rest,
     );
   }
 
@@ -522,12 +822,9 @@ class _DivisionCardState extends State<_DivisionCard> {
                                 color: const Color(0xFFFEF3C7),
                                 borderRadius: BorderRadius.circular(5),
                               ),
-                              child: Text(
-                                  fmt.kind == BracketKind.polygon
-                                      ? '$teamCount팀 풀리그'
-                                      : '$teamCount팀',
+                              child: Text('$teamCount팀',
                                   style: const TextStyle(
-                                      fontSize: 14,
+                                      fontSize: 13,
                                       fontWeight: FontWeight.w800,
                                       color: Color(0xFF92400E))),
                             ),
@@ -573,7 +870,7 @@ class _DivisionCardState extends State<_DivisionCard> {
         ),
         child: Text(text,
             style: const TextStyle(
-                fontSize: 14,
+                fontSize: 13,
                 fontWeight: FontWeight.w700,
                 color: Colors.white)),
       );
@@ -636,7 +933,7 @@ class _DivisionCardState extends State<_DivisionCard> {
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               Text(
-                '${activeGroup.size}팀 풀리그',
+                '${activeGroup.size}팀',
                 style: const TextStyle(
                     fontSize: 19,
                     fontWeight: FontWeight.w700,
@@ -678,24 +975,15 @@ class _DivisionCardState extends State<_DivisionCard> {
           ),
           const SizedBox(height: 6),
           _resultMatrix(teamData, activeMatches, venueColor: venueColor),
-          const SizedBox(height: 10),
+          const SizedBox(height: 4),
           PolygonBracket(
             teams: activeGroup.size,
             teamData: teamData,
             matches: activeMatches,
             courtColor: venueColor,
           ),
-          const SizedBox(height: 10),
-          _rankingTable(teamData),
-          const SizedBox(height: 10),
-          _matchCardList(
-            activeGroup,
-            activeMatches,
-            teamData,
-            venueColor: venueColor,
-            divisionLabel: '${d.event} ${d.ageGroup}-${d.grade}',
-            assignedVenue: venue,
-          ),
+          const SizedBox(height: 4),
+          _rankingTable(teamData, activeMatches, activeGroup),
         ] else if (fmt.finals != null) ...[
           Text(
             '본선 ${fmt.finals!.name} '
@@ -709,7 +997,7 @@ class _DivisionCardState extends State<_DivisionCard> {
             '${fmt.finals!.matches}경기 · 예선 1위 성적순 시드',
             style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
           if (fmt.finals!.isRoundRobin)
             PolygonBracket(
               teams: fmt.finals!.size,
@@ -726,6 +1014,8 @@ class _DivisionCardState extends State<_DivisionCard> {
                       fmt.finals!.size <= 6 ? fmt.finals!.size - 2 : 0],
                 ),
                 courts: widget.courts,
+                startTime: widget.tournament.matchStartTime,
+                matchMinutes: widget.tournament.matchDurationMinutes,
               ),
             )
           else
@@ -788,10 +1078,10 @@ class _DivisionCardState extends State<_DivisionCard> {
       child: Row(children: [
         btn('예선', !_showFinals,
             () => setState(() => _showFinals = false),
-            const Color(0xFF22C55E)),
+            AppColors.primaryMid),
         btn('본선', _showFinals,
             () => setState(() => _showFinals = true),
-            const Color(0xFF22C55E)),
+            const Color(0xFF2563EB)),
       ]),
     );
   }
@@ -873,17 +1163,20 @@ class _DivisionCardState extends State<_DivisionCard> {
           bg: const Color(0xFFF7F9FC),
         );
 
+    final activeGroup =
+        widget.division.format.groups[_activeGroup];
     Widget dataCell(int row, int col) {
       if (row == col) {
         return cell(
           txt('-', size: 16, color: const Color(0xFF9CA3AF)),
         );
       }
-      final lo = row < col ? row : col;
-      final hi = row < col ? col : row;
+      // 라운드로빈은 회전 방식으로 페어를 만들기 때문에 team1Index < team2Index 가
+      // 보장되지 않는다. 양방향으로 매칭해야 누락이 생기지 않는다.
       MatchInfo? m;
       for (final x in matches) {
-        if (x.team1Index == lo && x.team2Index == hi) {
+        if ((x.team1Index == row && x.team2Index == col) ||
+            (x.team1Index == col && x.team2Index == row)) {
           m = x;
           break;
         }
@@ -891,13 +1184,39 @@ class _DivisionCardState extends State<_DivisionCard> {
       if (m == null) {
         return cell(txt('-'));
       }
+      final key = matchScoreKey(
+        event: widget.division.event,
+        age: widget.division.ageGroup,
+        grade: widget.division.grade,
+        groupName: activeGroup.name,
+        matchNum: m.num_,
+      );
+      // scoreFor: 저장된 teamA/B(IDs) 와 현재 m.team1Index/team2Index 의 IDs 가
+      // 일치할 때만 (team1점수, team2점수) 반환. 페어 변경 후엔 null.
+      final pair = widget.matchScores[key]?.scoreFor(
+        teams[m.team1Index].playerIds,
+        teams[m.team2Index].playerIds,
+      );
+      String scoreText;
+      if (pair == null) {
+        scoreText = '-';
+      } else {
+        // pair 는 (team1Index 점수, team2Index 점수). row 입장에서 표시하려면
+        // m.team1Index == row 면 그대로, 반대 방향(=row=team2Index)이면 swap.
+        final isReverse = m.team1Index == col; // row 가 team2Index 쪽
+        final myScore = isReverse ? pair.$2 : pair.$1;
+        final oppScore = isReverse ? pair.$1 : pair.$2;
+        scoreText = '$myScore-$oppScore';
+      }
       return cell(Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          txt('0-0',
+          txt(scoreText,
               size: 13,
               w: FontWeight.w700,
-              color: const Color(0xFF1E3A8A)),
+              color: pair == null
+                  ? const Color(0xFF9CA3AF)
+                  : const Color(0xFF1E3A8A)),
           txt('${m.court}코트', size: 11, color: courtColor),
           txt('${m.num_}경기',
               size: 11, color: const Color(0xFF6B7280)),
@@ -941,40 +1260,124 @@ class _DivisionCardState extends State<_DivisionCard> {
     );
   }
 
-  /// 하단 순위표 — 다승·득실차·다득점 기준 (참조 앱 스타일).
-  /// 결과 미입력 시 모든 데이터 셀 '-'.
-  /// 패/실 칸은 빨강, 승/득/차 칸은 파랑으로 의미 강조.
-  Widget _rankingTable(List<TeamData> teams) {
+  /// 하단 순위표 — 다승–승자승–다득점–득실차 기준.
+  /// matchScores 에 기록된 실제 매치 결과로 승/패/득/실/점수 계산.
+  /// 미진행 매치는 통계 미반영(=0). 패/실 칸은 빨강, 승/득/차/점수 칸은 파랑.
+  Widget _rankingTable(
+      List<TeamData> teams, List<MatchInfo> matches, GroupInfo activeGroup) {
     const blue = Color(0xFF1E3A8A);
     const red = Color(0xFFDC2626);
 
-    Widget headerCell(String s, {Color color = const Color(0xFF374151)}) =>
+    Widget headerCell(String s,
+            {Color color = const Color(0xFF374151), double size = 11}) =>
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 5),
+          padding: const EdgeInsets.symmetric(horizontal: 1, vertical: 5),
           color: const Color(0xFFF7F9FC),
           alignment: Alignment.center,
           child: Text(s,
               textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.visible,
               style: TextStyle(
-                  fontSize: 12,
+                  fontSize: size,
                   fontWeight: FontWeight.w600,
                   color: color)),
         );
 
     Widget dataCell(String s,
             {FontWeight w = FontWeight.w500,
-            Color color = const Color(0xFF111827)}) =>
+            Color color = const Color(0xFF111827),
+            double size = 11}) =>
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 5),
+          padding: const EdgeInsets.symmetric(horizontal: 1, vertical: 5),
           alignment: Alignment.center,
           child: Text(s,
               textAlign: TextAlign.center,
               style: TextStyle(
-                  fontSize: 12,
+                  fontSize: size,
                   fontWeight: w,
                   color: color,
                   height: 1.3)),
         );
+
+    // 매치 결과 기반 실제 통계 계산.
+    // 정렬 우선순위: 다승 → 승자승(상대 전적) → 다득점(총 득점) → 득실차.
+    final n = teams.length;
+    final wins = List.filled(n, 0);
+    final losses = List.filled(n, 0);
+    final pf = List.filled(n, 0); // points for
+    final pa = List.filled(n, 0); // points against
+    final h2h = List.generate(n, (_) => List.filled(n, 0));
+    for (final m in matches) {
+      final key = matchScoreKey(
+        event: widget.division.event,
+        age: widget.division.ageGroup,
+        grade: widget.division.grade,
+        groupName: activeGroup.name,
+        matchNum: m.num_,
+      );
+      // 저장된 teamA/B(IDs) 와 현재 m.team1Index/team2Index 의 IDs 가 일치할 때만
+      // 점수 반영 — 페어 변경 후엔 자동 무효화.
+      final pair = widget.matchScores[key]?.scoreFor(
+        teams[m.team1Index].playerIds,
+        teams[m.team2Index].playerIds,
+      );
+      if (pair == null) continue;
+      final i = m.team1Index;
+      final j = m.team2Index;
+      final s1 = pair.$1;
+      final s2 = pair.$2;
+      pf[i] += s1;
+      pa[i] += s2;
+      pf[j] += s2;
+      pa[j] += s1;
+      if (s1 > s2) {
+        wins[i]++;
+        losses[j]++;
+        h2h[i][j]++;
+      } else if (s2 > s1) {
+        wins[j]++;
+        losses[i]++;
+        h2h[j][i]++;
+      }
+    }
+    final order = List.generate(n, (i) => i);
+    order.sort((a, b) {
+      if (wins[a] != wins[b]) return wins[b].compareTo(wins[a]);
+      // 승자승: a 가 b 에게 이긴 횟수 vs 그 반대 (3팀 이상에선 단순 head-to-head).
+      if (h2h[a][b] != h2h[b][a]) {
+        return h2h[b][a].compareTo(h2h[a][b]);
+      }
+      if (pf[a] != pf[b]) return pf[b].compareTo(pf[a]);
+      final diffA = pf[a] - pa[a];
+      final diffB = pf[b] - pa[b];
+      return diffB.compareTo(diffA);
+    });
+    final stats = <({
+      int rank,
+      int origIdx,
+      int wins,
+      int losses,
+      int pf,
+      int pa,
+      int diff,
+      int score,
+    })>[];
+    for (int rank = 0; rank < n; rank++) {
+      final idx = order[rank];
+      stats.add((
+        rank: rank + 1,
+        origIdx: idx,
+        wins: wins[idx],
+        losses: losses[idx],
+        pf: pf[idx],
+        pa: pa[idx],
+        diff: pf[idx] - pa[idx],
+        score: wins[idx] * 2,
+      ));
+    }
+
+    String fmtSigned(int v) => v > 0 ? '+$v' : '$v';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.end,
@@ -994,34 +1397,50 @@ class _DivisionCardState extends State<_DivisionCard> {
           child: Table(
             border: TableBorder.all(
                 color: const Color(0xFFD1D5DB), width: 0.6),
-            defaultColumnWidth: const FixedColumnWidth(20),
+            defaultColumnWidth: const FixedColumnWidth(22),
             columnWidths: const {
-              0: FixedColumnWidth(30), // 순위
-              1: FixedColumnWidth(76), // 소속 (두 클럽 6+6+1자 가능)
-              2: FixedColumnWidth(72), // 선수
+              0: FixedColumnWidth(26), // 순위 (font 축소)
+              1: FixedColumnWidth(68), // 소속
+              2: FixedColumnWidth(56), // 선수
+              3: FixedColumnWidth(24), // 점수
+              4: FixedColumnWidth(20), // 승
+              5: FixedColumnWidth(20), // 패
+              6: FixedColumnWidth(24), // 득
+              7: FixedColumnWidth(24), // 실
+              8: FixedColumnWidth(30), // 차
             },
             defaultVerticalAlignment: TableCellVerticalAlignment.middle,
             children: [
               TableRow(children: [
-                headerCell('순위'),
+                headerCell('순위', size: 9),
                 headerCell('소속'),
                 headerCell('선수'),
+                headerCell('승점', color: blue),
                 headerCell('승', color: blue),
                 headerCell('패', color: red),
                 headerCell('득', color: blue),
                 headerCell('실', color: red),
                 headerCell('차', color: blue),
               ]),
-              for (final t in teams)
+              for (final s in stats)
                 TableRow(children: [
-                  dataCell('-', color: const Color(0xFF9CA3AF)),
-                  dataCell(t.name, w: FontWeight.w600),
-                  dataCell(t.players.join('\n')),
-                  dataCell('-', color: blue),
-                  dataCell('-', color: red),
-                  dataCell('-', color: blue),
-                  dataCell('-', color: red),
-                  dataCell('-', color: blue),
+                  dataCell(
+                    '${s.rank}',
+                    w: FontWeight.w700,
+                    color: s.rank == 1
+                        ? blue
+                        : const Color(0xFF374151),
+                  ),
+                  dataCell(teams[s.origIdx].name, w: FontWeight.w600),
+                  dataCell(teams[s.origIdx].players.join('\n')),
+                  dataCell('${s.score}',
+                      w: FontWeight.w800, color: blue),
+                  dataCell('${s.wins}', color: blue),
+                  dataCell('${s.losses}', color: red),
+                  dataCell('${s.pf}', color: blue),
+                  dataCell('${s.pa}', color: red),
+                  dataCell(fmtSigned(s.diff),
+                      w: FontWeight.w700, color: blue),
                 ]),
             ],
           ),
@@ -1030,257 +1449,5 @@ class _DivisionCardState extends State<_DivisionCard> {
     );
   }
 
-  /// 코트 번호 → 활성 경기장 매핑.
-  /// 경기장1 코트 4 → 1~4, 경기장2 코트 3 → 5~7, ...
-  Venue? _venueForCourt(int court) {
-    int s = 1;
-    for (final v in widget.venues) {
-      if (court >= s && court < s + v.courts) return v;
-      s += v.courts;
-    }
-    return null;
-  }
-
-  /// 경기 카드 리스트 (참조 앱 스타일).
-  /// 각 매치를 큰 카드로: 시간 / 상태칩 / 코트·경기번호 / 부서·조 / 팀A 점수 팀B
-  /// 경기장 칩은 각 카드 상단 외부에 배치 (참고 그림 4·15 스타일).
-  Widget _matchCardList(
-    GroupInfo group,
-    List<MatchInfo> matches,
-    List<TeamData> teams, {
-    Color? venueColor,
-    required String divisionLabel,
-    Venue? assignedVenue,
-  }) {
-    final fallbackColor = venueColor ?? const Color(0xFF1E3A8A);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text(
-          '${group.name} 경기 카드',
-          style: const TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 13,
-              color: Color(0xFF1E3A8A)),
-        ),
-        const SizedBox(height: 6),
-        ...matches.map((m) {
-          final t1 = m.team1Index < teams.length ? teams[m.team1Index] : null;
-          final t2 = m.team2Index < teams.length ? teams[m.team2Index] : null;
-          // 부서에 경기장이 지정된 경우 그 경기장 사용,
-          // 미지정이면 코트 번호가 속한 경기장으로 자동 매핑.
-          final mVenue = assignedVenue ?? _venueForCourt(m.court);
-          final mColor =
-              mVenue != null ? _hexToColor(mVenue.colorHex) : fallbackColor;
-          final mVenueName =
-              mVenue != null ? widget.displayNameFor(mVenue) : '';
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                // 카드 상단 외부 경기장 칩
-                if (mVenueName.isNotEmpty)
-                  Container(
-                    margin: const EdgeInsets.only(bottom: 4, right: 4),
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF3F4F6),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(
-                          color: const Color(0xFFD1D5DB), width: 1),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.place, size: 12, color: mColor),
-                        const SizedBox(width: 3),
-                        Text(mVenueName,
-                            style: const TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                                color: Color(0xFF374151))),
-                      ],
-                    ),
-                  ),
-                Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: const Color(0xFF9CA3AF),
-                      width: 1.2,
-                    ),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Color(0x14000000),
-                        blurRadius: 4,
-                        offset: Offset(0, 1),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    children: [
-                      // 상단: 시간 / 상태
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(10, 8, 10, 6),
-                        child: Row(children: [
-                          Text(m.time,
-                              style: const TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                  color: Color(0xFF374151))),
-                          const Spacer(),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF6B7280),
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                            child: const Text('경기시작전',
-                                style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w700,
-                                    color: Colors.white)),
-                          ),
-                          const Spacer(),
-                          // 우측 균형용 빈 영역(시간 텍스트 폭과 시각적 대칭).
-                          Opacity(
-                            opacity: 0,
-                            child: Text(m.time,
-                                style: const TextStyle(
-                                    fontSize: 14, fontWeight: FontWeight.w600)),
-                          ),
-                        ]),
-                      ),
-                      // 코트·경기번호 / 부서 라벨
-                      Text('${m.court}코트 ${m.num_}경기',
-                          style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              color: mColor)),
-                Text.rich(
-                  TextSpan(
-                    children: [
-                      TextSpan(
-                        text: divisionLabel,
-                        style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF111827)),
-                      ),
-                      const TextSpan(text: ' '),
-                      TextSpan(
-                        text: '[${group.name}]',
-                        style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF3B82F6)),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 4),
-                const Divider(height: 1, color: Color(0xFF9CA3AF)),
-                // 본문: 팀A / 점수 / 팀B
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-                  child: Row(children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // 클럽명 — 톤 약하게 (회색·중간 두께)
-                          Text(t1?.name ?? '미정',
-                              maxLines: 1,
-                              softWrap: false,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                  color: Color(0xFF6B7280),
-                                  letterSpacing: -0.3)),
-                          const SizedBox(height: 3),
-                          // 선수 이름 — 메인 강조 (크고 진하게)
-                          if (t1 != null)
-                            for (final p in t1.players)
-                              Text(p,
-                                  style: const TextStyle(
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w700,
-                                      color: Color(0xFF111827))),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.baseline,
-                      textBaseline: TextBaseline.alphabetic,
-                      children: [
-                        SizedBox(
-                          width: 32,
-                          child: Text('0',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                  fontSize: 30,
-                                  fontWeight: FontWeight.w800,
-                                  height: 1.0,
-                                  color: mColor)),
-                        ),
-                        const SizedBox(width: 2),
-                        const SizedBox(
-                          width: 32,
-                          child: Text('0',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                  fontSize: 30,
-                                  fontWeight: FontWeight.w800,
-                                  height: 1.0,
-                                  color: Color(0xFF111827))),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text(t2?.name ?? '미정',
-                              textAlign: TextAlign.right,
-                              maxLines: 1,
-                              softWrap: false,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                  color: Color(0xFF6B7280),
-                                  letterSpacing: -0.3)),
-                          const SizedBox(height: 3),
-                          if (t2 != null)
-                            for (final p in t2.players)
-                              Text(p,
-                                  textAlign: TextAlign.right,
-                                  style: const TextStyle(
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w700,
-                                      color: Color(0xFF111827))),
-                        ],
-                      ),
-                    ),
-                  ]),
-                ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          );
-        }),
-      ],
-    );
-  }
 
 }

@@ -52,7 +52,7 @@ class ClubListItem extends StatelessWidget {
                           fontWeight: FontWeight.w700,
                           color: AppColors.text)),
                   const SizedBox(width: 6),
-                  AppBadge.status(club.memberType),
+                  AppBadge.status(club.status),
                 ]),
                 const SizedBox(height: 3),
                 Text('회장: ${club.presidentName}  ${club.presidentPhone}',
