@@ -55,6 +55,14 @@ class BracketGeneratorTab extends StatefulWidget {
   /// 라벨은 '20·30' 처럼 가운뎃점으로 결합되며 [ageMatches] 가 처리.
   final bool autoMergeAges;
 
+  /// 대회 일수 (1~4). 2 이상일 때 대진표 설정 카드에 일자 셀렉터 노출.
+  final int totalDays;
+
+  /// 각 division 이 속하는 일자를 반환. 일자 필터에 사용.
+  /// (event, age, grade) 가 모두 매칭되는 첫 일자를 반환. 매칭 안 되면 1.
+  /// → 각 division 이 정확히 하나의 일자에 속해서 1일차 + 2일차 + ... = 전체 가 성립.
+  final int Function(Division d)? divisionDay;
+
   const BracketGeneratorTab({
     super.key,
     required this.tournament,
@@ -65,6 +73,8 @@ class BracketGeneratorTab extends StatefulWidget {
     this.onChanged,
     this.matchScores = const {},
     this.autoMergeAges = false,
+    this.totalDays = 1,
+    this.divisionDay,
   });
 
   /// 활성 경기장 (코트 수 > 0) 만 반환.
@@ -81,6 +91,10 @@ class _BracketGeneratorTabState extends State<BracketGeneratorTab> {
   /// 선택된 종목 셋. 다중 선택 — 체크된 종목 모두 한 번에 대진표가 생성됨.
   final Set<String> _selectedEvents = {'혼복'};
   int _courts = 4;
+
+  /// 일자 필터 — null = 전체 일자, 정수 = 그 일자에 활성인 종목의 부서만 표시.
+  /// 다일 대회(_totalDays > 1) 일 때만 노출.
+  int? _filterDay;
 
   List<Division>? _divisions; // null = 미생성
   String? _expandedKey;
@@ -276,10 +290,14 @@ class _BracketGeneratorTabState extends State<BracketGeneratorTab> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('대진표 설정',
-              style: TextStyle(
-                  fontWeight: FontWeight.bold, color: Color(0xFF1E3A8A))),
-          const SizedBox(height: 6),
+          // 일자 셀렉터 (다일 대회만). '전체' + 1일차/2일차/... 토글.
+          if (widget.totalDays > 1) ...[
+            Row(children: [
+              const SizedBox(width: 60, child: Text('일자')),
+              Expanded(child: _buildDayChips()),
+            ]),
+            const SizedBox(height: 8),
+          ],
           // 종목 셀렉터 (다중 선택). 체크된 종목 모두 한 번에 대진표가 생성됨.
           Row(children: [
             const SizedBox(width: 60, child: Text('종목')),
@@ -379,14 +397,6 @@ class _BracketGeneratorTabState extends State<BracketGeneratorTab> {
               ),
             ),
           ]),
-          const SizedBox(height: 4),
-          Text(
-            widget.activeVenues.isEmpty
-                ? '* 설정 탭에서 경기장·코트 수를 먼저 입력하세요.'
-                : '* 코트 수는 설정 탭에서 변경합니다.',
-            style: const TextStyle(
-                fontSize: 10, color: Color(0xFF9CA3AF)),
-          ),
         ],
       ),
     );
@@ -507,9 +517,60 @@ class _BracketGeneratorTabState extends State<BracketGeneratorTab> {
     );
   }
 
+  // ── 일자 셀렉터 — 다일 대회 때만 노출 ───────
+  Widget _buildDayChips() {
+    Widget chip(String label, bool on, VoidCallback onTap) => GestureDetector(
+          onTap: onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+            decoration: BoxDecoration(
+              color: on
+                  ? const Color(0xFF1E3A8A)
+                  : const Color(0xFFEFF6FF),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(
+                color: on
+                    ? const Color(0xFF1E3A8A)
+                    : const Color(0xFFBFDBFE),
+                width: 1.4,
+              ),
+            ),
+            child: Text(label,
+                style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: on
+                        ? Colors.white
+                        : const Color(0xFF1E3A8A))),
+          ),
+        );
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: [
+        chip('전체', _filterDay == null,
+            () => setState(() => _filterDay = null)),
+        for (int d = 1; d <= widget.totalDays; d++)
+          chip('$d일차', _filterDay == d,
+              () => setState(() => _filterDay = d)),
+      ],
+    );
+  }
+
   // ── 결과: 요약 + Division 카드 리스트 ──────
   List<Widget> _buildResults() {
-    final divs = _divisions!;
+    final allDivs = _divisions!;
+    // 일자 필터 적용 — 각 division 은 정확히 한 일자에 속함 (첫 매칭).
+    // 전체 = 1일차 + 2일차 + ... 합이 정확히 성립.
+    final divs = _filterDay == null
+        ? allDivs
+        : allDivs.where((d) {
+            final fn = widget.divisionDay;
+            if (fn == null) return true;
+            return fn(d) == _filterDay;
+          }).toList();
     if (divs.isEmpty) {
       return [
         Container(

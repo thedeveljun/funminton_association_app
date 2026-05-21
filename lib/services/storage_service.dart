@@ -24,6 +24,7 @@ class StorageService {
   static const _kAgeGroupOrder = 'data_age_group_order_v1';
   static const _kBracketDayInactiveVenues =
       'ui_bracket_day_inactive_venues_v1';
+  static const _kBracketDayAssign = 'ui_bracket_day_assign_v1';
   static const _kScheduled = 'data_scheduled_tournaments_v1';
   static const _kNotices = 'data_notices_v1';
   static const _kBoards = 'data_boards_v1';
@@ -210,6 +211,52 @@ class StorageService {
         final day = int.tryParse(dk.toString());
         if (day == null || dv is! List) return;
         out[day] = dv.map((e) => e.toString()).toSet();
+      });
+      return out;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // ─── 일자별 (event,age,grade) → venueId 배정 ─────
+  // AI 자동배정/셀 탭 결과 영속화. `{tid: {dayNum(str): {"event|age|grade": venueId, ...}}}`.
+
+  static Future<void> saveBracketDayAssign(
+    String tournamentId,
+    Map<int, Map<String, String>> dayAssign,
+  ) async {
+    if (tournamentId.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_kBracketDayAssign);
+    Map<String, dynamic> map = {};
+    if (raw != null) {
+      try {
+        map = Map<String, dynamic>.from(jsonDecode(raw));
+      } catch (_) {/* 손상 시 새 맵 */}
+    }
+    map[tournamentId] = {
+      for (final e in dayAssign.entries) e.key.toString(): e.value,
+    };
+    await prefs.setString(_kBracketDayAssign, jsonEncode(map));
+  }
+
+  static Future<Map<int, Map<String, String>>?> loadBracketDayAssign(
+      String tournamentId) async {
+    if (tournamentId.isEmpty) return null;
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_kBracketDayAssign);
+    if (raw == null) return null;
+    try {
+      final map = Map<String, dynamic>.from(jsonDecode(raw));
+      final entry = map[tournamentId];
+      if (entry is! Map) return null;
+      final out = <int, Map<String, String>>{};
+      entry.forEach((dk, dv) {
+        final day = int.tryParse(dk.toString());
+        if (day == null || dv is! Map) return;
+        out[day] = {
+          for (final kv in dv.entries) kv.key.toString(): kv.value.toString(),
+        };
       });
       return out;
     } catch (_) {

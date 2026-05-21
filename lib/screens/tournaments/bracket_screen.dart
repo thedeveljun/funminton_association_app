@@ -170,6 +170,7 @@ class _BracketScreenState extends State<BracketScreen>
       // 1회 보정: 사용자 요청대로 1번 경기장을 녹색(#2a7d4f) 으로. flag 가 없을 때만
       // 적용하고 즉시 flag 를 세팅 → 이후 picker 로 다른 색을 선택해도 강제 안 됨.
       _applyVenue1GreenOnce();
+      _applyVenue2TealOnce();
     } else {
       _venues = [
         Venue(
@@ -221,6 +222,7 @@ class _BracketScreenState extends State<BracketScreen>
     _loadSelectedPlayers();
     _loadSchedule();
     _loadDayInactiveVenues();
+    _loadDayAssign();
     _loadEntryEventCounts();
     _loadMatchScores();
 
@@ -747,6 +749,37 @@ class _BracketScreenState extends State<BracketScreen>
         _tournament.id, _dayInactiveVenues);
   }
 
+  /// 일자별 셀 배정(_dayAssignMap) SP 영속화. AI 자동배정 / AssignTable 셀 탭 직후 호출.
+  void _saveDayAssign() {
+    final serialized = <int, Map<String, String>>{
+      for (final e in _dayAssignMap.entries)
+        e.key: {
+          for (final c in e.value.entries)
+            _assignStorageKey(c.key.event, c.key.decadeKey, c.key.grade):
+                c.value,
+        },
+    };
+    StorageService.saveBracketDayAssign(_tournament.id, serialized);
+  }
+
+  /// SP 에서 일자별 배정 복원. 화면 진입 시 1회 호출.
+  Future<void> _loadDayAssign() async {
+    final saved = await StorageService.loadBracketDayAssign(_tournament.id);
+    if (!mounted || saved == null) return;
+    setState(() {
+      _dayAssignMap.clear();
+      saved.forEach((day, m) {
+        final inner = <AssignKey, String>{};
+        m.forEach((sk, v) {
+          final parts = sk.split('|');
+          if (parts.length != 3) return;
+          inner[AssignKey(parts[0], parts[1], parts[2])] = v;
+        });
+        if (inner.isNotEmpty) _dayAssignMap[day] = inner;
+      });
+    });
+  }
+
   Future<void> _loadDayInactiveVenues() async {
     final saved =
         await StorageService.loadBracketDayInactiveVenues(_tournament.id);
@@ -1075,6 +1108,19 @@ class _BracketScreenState extends State<BracketScreen>
     await StorageService.setFlag('venue_v1_green_applied', true);
   }
 
+  /// 1회성 보정: 2번 경기장 색을 짙은 청록빛 파란색(#06618f) 으로.
+  Future<void> _applyVenue2TealOnce() async {
+    if (_venues.length < 2) return;
+    final applied = await StorageService.getFlag('venue_v2_teal_applied');
+    if (applied) return;
+    if (!mounted) return;
+    setState(() {
+      _venues[1] = _venues[1].copyWith(colorHex: '#06618f');
+    });
+    _syncVenuesToTournament(debounce: false);
+    await StorageService.setFlag('venue_v2_teal_applied', true);
+  }
+
   void _updateVenueColor(int i, String colorHex) {
     if (i < 0 || i >= _venues.length) return;
     if (_venues[i].colorHex == colorHex) return;
@@ -1118,12 +1164,15 @@ class _BracketScreenState extends State<BracketScreen>
   /// 실행 전 스냅샷을 `_preAiAssignMap` 에 저장하여 'AI 자동취소'로 복원 가능.
   void _aiAssignVenues() {
     if (_venues.isEmpty) return;
-    final activeVs = _venues.where((v) => v.courts > 0).toList();
-    if (activeVs.isEmpty) return;
-
     // 경기정보 카드의 현재 일자(_selectedScheduleDay) 셀만 처리.
     // 일자별 배정 맵에 쓰므로 다른 일자의 배정은 절대 영향 없음.
     final day = _selectedScheduleDay.clamp(1, _totalDays);
+    // 그 일자에 사용 활성화된 경기장만 후보 (대회날짜 카드의 사용 경기장 토글 반영).
+    final activeVs = _venues
+        .where((v) =>
+            v.courts > 0 && _isVenueActiveOnDay(day, v.id))
+        .toList();
+    if (activeVs.isEmpty) return;
 
     // 직전 그 일자 맵 스냅샷 (AI 자동취소용).
     final dayCurrent = _dayAssignMap[day] ?? const <AssignKey, String>{};
@@ -1137,6 +1186,9 @@ class _BracketScreenState extends State<BracketScreen>
         .toList();
 
     // 1) 그 일자의 (event, age, grade) 셀 매치 수/그룹 수 산출.
+    //    모든 (event, age, grade) 조합을 포함 — 매치가 안 만들어지는 셀(팀 3개 미만)도
+    //    matches=0 으로 포함해서 AssignTable 의 시각 균등성을 유지한다. (이전: skip 으로
+    //    인해 그 셀들이 모두 venue 1 기본값으로 남아 쏠림 현상 발생.)
     final allCells =
         <({String event, String age, String grade, int matches, int groups})>[];
     for (final ev in selectedEvents) {
@@ -1158,238 +1210,185 @@ class _BracketScreenState extends State<BracketScreen>
               .where((p) => ageMatches(age, p.age, _ageGroupLabels))
               .toList();
           final teams = pool.length ~/ 2;
-          if (teams < 3) continue;
-          final fmt = determineFormat(teams);
-          if (fmt == null) continue;
           int matches = 0;
-          for (final grp in fmt.groups) {
-            if (grp.size >= 2) {
-              matches += (grp.size * (grp.size - 1)) ~/ 2;
+          int groups = 1;
+          if (teams >= 3) {
+            final fmt = determineFormat(teams);
+            if (fmt != null) {
+              for (final grp in fmt.groups) {
+                if (grp.size >= 2) {
+                  matches += (grp.size * (grp.size - 1)) ~/ 2;
+                }
+              }
+              groups = fmt.groups.length;
             }
           }
-          if (matches > 0) {
-            allCells.add((
-              event: ev,
-              age: age,
-              grade: g,
-              matches: matches,
-              groups: fmt.groups.length,
-            ));
-          }
+          allCells.add((
+            event: ev,
+            age: age,
+            grade: g,
+            matches: matches,
+            groups: groups,
+          ));
         }
       }
     }
 
     if (allCells.isEmpty) return;
 
-    /// 한 셀(셀의 모든 그룹)의 단독 진행 시간(슬롯) 추정.
-    /// 각 그룹(3~4팀)은 약 5슬롯 소요(3라운드 + 라운드 사이 1슬롯 강제 휴식).
-    /// 그룹당 코트 사용 = 2 (4팀 그룹의 라운드당 2매치 병렬).
-    /// 동시 진행 가능 그룹 수 = min(전체 그룹, courts/2).
-    /// 시간 = 5 × ceil(전체 그룹 수 / 병렬 그룹 수).
-    /// 매치 수 / 코트 수 하한도 함께 적용 (매우 큰 그룹 케이스 대비).
-    int cellTime(int matches, int groups, int courts) {
-      if (matches <= 0 || courts <= 0 || groups <= 0) return 0;
-      final perGroupCourts = 2;
-      final parallel = math.max(1, math.min(groups, courts ~/ perGroupCourts));
-      final waves = (groups + parallel - 1) ~/ parallel;
-      final groupBased = 5 * waves;
-      final courtBased = (matches + courts - 1) ~/ courts;
-      return math.max(groupBased, courtBased);
-    }
-
-    // 체육관 부하: grade gate 때문에 급수별 시간의 합. (matches, groups) 트래킹.
-    final venueGradeLoad =
-        <String, Map<String, ({int matches, int groups})>>{
-      for (final v in activeVs) v.id: {},
+    // 핵심 메트릭: 경기장 부하 = 배정된 셀의 총 매치 수.
+    // 균등성은 매치 수 ÷ 코트 수 (load per court) 가 모든 경기장에서 비슷한 것.
+    final venueMatches = <String, int>{
+      for (final v in activeVs) v.id: 0,
     };
-    // 체육관별 배정된 연령 라벨 집합. 한 체육관 최대 4개 연령 제약(운영 편의).
-    const maxAgesPerVenue = 4;
+    final venueCells = <String, List<int>>{
+      for (final v in activeVs) v.id: <int>[],
+    };
     final venueAges = <String, Set<String>>{
       for (final v in activeVs) v.id: <String>{},
     };
-    // 한 셀의 age 를 추가했을 때 체육관의 연령 수가 한도를 넘는가?
-    bool wouldExceedAgeLimit(String vid, String age) {
-      final cur = venueAges[vid]!;
-      if (cur.contains(age)) return false;
-      return cur.length >= maxAgesPerVenue;
-    }
-    Venue venueOf(String vid) =>
-        activeVs.firstWhere((x) => x.id == vid);
-    int venueTotalTime(String vid) {
-      final c = venueOf(vid).courts;
-      int total = 0;
-      venueGradeLoad[vid]!.forEach(
-          (_, v) => total += cellTime(v.matches, v.groups, c));
-      return total;
-    }
-    // 한 셀을 vid 의 (matches, groups) 에 가감했을 때 가상 시간.
-    int simTime(String vid, String gradeDelta, int dMatches, int dGroups) {
-      final c = venueOf(vid).courts;
-      int total = 0;
-      bool seen = false;
-      venueGradeLoad[vid]!.forEach((g, v) {
-        if (g == gradeDelta) {
-          seen = true;
-          total += cellTime(v.matches + dMatches, v.groups + dGroups, c);
-        } else {
-          total += cellTime(v.matches, v.groups, c);
+
+    Venue venueOf2(List<Venue> list, String id) =>
+        list.firstWhere((x) => x.id == id);
+
+    // venueCells 기준으로 venueAges 재구축 — swap/move 시 호출.
+    void rebuildAgesSets() {
+      for (final v in activeVs) {
+        final set = venueAges[v.id]!;
+        set.clear();
+        for (final idx in venueCells[v.id]!) {
+          set.add(allCells[idx].age);
         }
-      });
-      if (!seen && dMatches > 0) {
-        total += cellTime(dMatches, dGroups, c);
       }
-      return total;
     }
 
-    String leastTimeVenue() {
+    // 경기장 부하 점수 — 작을수록 한산. 코트 수 가중 (코트 많은 경기장은 더 많은 매치 흡수).
+    double loadPerCourt(String vid, [int addMatches = 0]) {
+      final v = venueOf2(activeVs, vid);
+      return (venueMatches[vid]! + addMatches) / v.courts;
+    }
+
+    double makespanPerCourt() {
+      double m = 0;
+      for (final v in activeVs) {
+        final l = loadPerCourt(v.id);
+        if (l > m) m = l;
+      }
+      return m;
+    }
+
+    // 2) LPT 배정 — 매치 수 큰 셀부터 가장 한산한 경기장 (loadPerCourt 최소) 에 배정.
+    //    이 알고리즘은 grade-gate 같은 시간 amortization 을 무시 — 매치 수 균등이 우선.
+    //    Tie 발생 시 같은 급수가 이미 있는 경기장을 약하게 선호 (locality, 운영 효율 ↑).
+    final cellOrder = List<int>.generate(allCells.length, (i) => i)
+      ..sort((a, b) =>
+          allCells[b].matches.compareTo(allCells[a].matches));
+
+    // 점수 메트릭 — 작을수록 선호.
+    // PRIMARY: (셀 카운트 + 이 셀) / 코트 수 — 시각 균등성 (AssignTable 의 다크 칩 수 균등).
+    //          7:6:4 코트면 10:9:6 셀로 비례 분산.
+    // SECONDARY: 매치 수 가중치 (0.0001) — 시간 makespan tie-break.
+    // TERTIARY: 같은 급수 locality (-0.00001) — 같은 경기장에 같은 급수면 약한 선호.
+    double cellScore(String vid, int addMatches, String grade) {
+      final newCount = venueCells[vid]!.length + 1;
+      final courts = venueOf2(activeVs, vid).courts;
+      final countRatio = newCount / courts;
+      final matchTerm = (venueMatches[vid]! + addMatches) * 0.0001;
+      final hasGrade =
+          venueCells[vid]!.any((idx) => allCells[idx].grade == grade);
+      final localityTerm = hasGrade ? -0.00001 : 0.0;
+      return countRatio + matchTerm + localityTerm;
+    }
+
+    final cellVenue = <int, String>{};
+    for (final i in cellOrder) {
+      final c = allCells[i];
       String best = activeVs.first.id;
-      int bestTime = venueTotalTime(best);
+      double bestScore = cellScore(best, c.matches, c.grade);
       for (final v in activeVs.skip(1)) {
-        final t = venueTotalTime(v.id);
-        if (t < bestTime) {
-          bestTime = t;
+        final s = cellScore(v.id, c.matches, c.grade);
+        if (s < bestScore - 1e-9) {
+          bestScore = s;
           best = v.id;
         }
       }
-      return best;
+      cellVenue[i] = best;
+      venueMatches[best] = venueMatches[best]! + c.matches;
+      venueCells[best]!.add(i);
+      venueAges[best]!.add(c.age);
     }
 
-    // 2) LPT 배정. 정렬 우선순위:
-    //    (a) 상위 급수(A, B)부터 — 첫 체육관에 우선 배치되도록.
-    //    (b) 그 다음 매치 수 큰 급수부터.
-    //    각 셀은 매치 수 큰 순서로 처리.
-    //    체육관 선택 점수: 가상 시간 − 같은 급수 locality 보너스 − 첫 체육관 상위급수 보너스.
-    //    연령 제약(체육관당 최대 5개) 위반 시 후보에서 제외.
-    const highGrades = {'A조', 'B조'};
-    const firstVenueHighGradeBonus = 100; // 매치 수보다 크게 — 강한 선호.
-    final firstVenueId = activeVs.first.id;
-
-    final gradeTotalMatches = <String, int>{};
-    for (final c in allCells) {
-      gradeTotalMatches[c.grade] =
-          (gradeTotalMatches[c.grade] ?? 0) + c.matches;
-    }
-    final gradesSorted = gradeTotalMatches.keys.toList()
-      ..sort((a, b) {
-        // 상위 급수 먼저 (A→B→나머지). 같은 그룹 안에서는 매치 수 desc.
-        final ah = highGrades.contains(a) ? 0 : 1;
-        final bh = highGrades.contains(b) ? 0 : 1;
-        if (ah != bh) return ah.compareTo(bh);
-        if (a == 'A조' && b != 'A조') return -1;
-        if (b == 'A조' && a != 'A조') return 1;
-        return gradeTotalMatches[b]!.compareTo(gradeTotalMatches[a]!);
-      });
-
-    final cellVenue = <int, String>{};
-    for (final g in gradesSorted) {
-      final gradeCellIdxs = <int>[];
-      for (int i = 0; i < allCells.length; i++) {
-        if (allCells[i].grade == g) gradeCellIdxs.add(i);
-      }
-      gradeCellIdxs.sort((a, b) =>
-          allCells[b].matches.compareTo(allCells[a].matches));
-
-      for (final i in gradeCellIdxs) {
-        final c = allCells[i];
-        String? chosen;
-        int bestScore = 1 << 30;
-        for (final v in activeVs) {
-          if (wouldExceedAgeLimit(v.id, c.age)) continue;
-          final t = simTime(v.id, c.grade, c.matches, c.groups);
-          final localityBonus =
-              venueGradeLoad[v.id]!.containsKey(c.grade) ? 5 : 0;
-          final highGradeBonus =
-              highGrades.contains(c.grade) && v.id == firstVenueId
-                  ? firstVenueHighGradeBonus
-                  : 0;
-          final score = t - localityBonus - highGradeBonus;
-          if (score < bestScore) {
-            bestScore = score;
-            chosen = v.id;
-          }
-        }
-        // 모든 체육관이 연령 제약 위반이면 단순 시간 최소로 선택 (graceful fallback).
-        chosen ??= leastTimeVenue();
-
-        cellVenue[i] = chosen;
-        venueAges[chosen]!.add(c.age);
-        final cur =
-            venueGradeLoad[chosen]![c.grade] ?? (matches: 0, groups: 0);
-        venueGradeLoad[chosen]![c.grade] = (
-          matches: cur.matches + c.matches,
-          groups: cur.groups + c.groups,
-        );
-      }
+    // 3) SWAP 재조정 — 가장 부하 큰 경기장과 가장 한산한 경기장 사이에서 두 셀을 교환해
+    //    makespanPerCourt 가 감소하면 채택. 반복 200회.
+    void swapCells(int i, int j) {
+      final fromV = cellVenue[i]!;
+      final toV = cellVenue[j]!;
+      final ci = allCells[i];
+      final cj = allCells[j];
+      // 매치 수 갱신
+      venueMatches[fromV] = venueMatches[fromV]! - ci.matches + cj.matches;
+      venueMatches[toV] = venueMatches[toV]! - cj.matches + ci.matches;
+      // 셀 목록 갱신
+      venueCells[fromV]!.remove(i);
+      venueCells[fromV]!.add(j);
+      venueCells[toV]!.remove(j);
+      venueCells[toV]!.add(i);
+      cellVenue[i] = toV;
+      cellVenue[j] = fromV;
+      // 연령 셋 갱신
+      rebuildAgesSets();
     }
 
-    // 3) 재조정 루프 — 최대 부하 체육관의 셀 중 다른 체육관으로 옮겼을 때 makespan 이
-    //    줄어드는 셀이 있으면 이동. locality 는 작은 셀부터 옮겨 가능한 유지.
-    for (int iter = 0; iter < 100; iter++) {
+    // 3) SWAP 재조정 — 셀 카운트 ÷ 코트 수 가 가장 큰 경기장과 가장 작은 경기장 사이
+    //    MOVE/SWAP 으로 imbalance 줄이기. LPT 와 같은 메트릭 사용.
+    double cellRatio(String vid) =>
+        venueCells[vid]!.length / venueOf2(activeVs, vid).courts;
+
+    for (int iter = 0; iter < 200; iter++) {
       String maxV = activeVs.first.id;
       String minV = activeVs.first.id;
       for (final v in activeVs) {
-        if (venueTotalTime(v.id) > venueTotalTime(maxV)) maxV = v.id;
-        if (venueTotalTime(v.id) < venueTotalTime(minV)) minV = v.id;
+        if (cellRatio(v.id) > cellRatio(maxV)) maxV = v.id;
+        if (cellRatio(v.id) < cellRatio(minV)) minV = v.id;
       }
-      final curImbalance =
-          venueTotalTime(maxV) - venueTotalTime(minV);
-      if (curImbalance <= 1) break;
+      final imbalance = cellRatio(maxV) - cellRatio(minV);
+      // 1셀 차이 미만이면 종료 (작은 경기장 기준 코트 수로 환산).
+      if (imbalance < 1.0 / venueOf2(activeVs, minV).courts) break;
 
-      int? bestIdx;
-      String? bestTargetV;
-      int bestNewMakespan = venueTotalTime(maxV);
-      for (int i = 0; i < allCells.length; i++) {
-        if (cellVenue[i] != maxV) continue;
-        final c = allCells[i];
-        for (final tgt in activeVs) {
-          if (tgt.id == maxV) continue;
-          // 연령 제약: 옮긴 후 tgt 의 연령 수가 한도를 넘으면 스킵.
-          if (wouldExceedAgeLimit(tgt.id, c.age)) continue;
-          final newMaxT =
-              simTime(maxV, c.grade, -c.matches, -c.groups);
-          final newTgtT =
-              simTime(tgt.id, c.grade, c.matches, c.groups);
-          int newMakespan = math.max(newMaxT, newTgtT);
-          for (final v in activeVs) {
-            if (v.id == maxV || v.id == tgt.id) continue;
-            final t = venueTotalTime(v.id);
-            if (t > newMakespan) newMakespan = t;
-          }
-          if (newMakespan < bestNewMakespan) {
-            bestNewMakespan = newMakespan;
-            bestIdx = i;
-            bestTargetV = tgt.id;
-          }
+      // (A) MOVE: maxV 의 한 셀을 minV 로 이동. 셀 카운트 ratio 가 감소되면 채택.
+      int? bestMoveIdx;
+      double bestMoveImbalance = imbalance;
+      for (final idx in venueCells[maxV]!) {
+        final newMaxCount =
+            (venueCells[maxV]!.length - 1) / venueOf2(activeVs, maxV).courts;
+        final newMinCount =
+            (venueCells[minV]!.length + 1) / venueOf2(activeVs, minV).courts;
+        double maxR = newMaxCount;
+        double minR = newMinCount;
+        for (final v in activeVs) {
+          if (v.id == maxV || v.id == minV) continue;
+          final r = cellRatio(v.id);
+          if (r > maxR) maxR = r;
+          if (r < minR) minR = r;
+        }
+        final newImb = maxR - minR;
+        if (newImb < bestMoveImbalance - 1e-9) {
+          bestMoveImbalance = newImb;
+          bestMoveIdx = idx;
         }
       }
-      if (bestIdx == null) break;
 
-      final c = allCells[bestIdx];
-      final maxMap = venueGradeLoad[maxV]!;
-      final maxCur = maxMap[c.grade]!;
-      final newMatches = maxCur.matches - c.matches;
-      final newGroups = maxCur.groups - c.groups;
-      if (newMatches <= 0) {
-        maxMap.remove(c.grade);
+      if (bestMoveIdx != null) {
+        final c = allCells[bestMoveIdx];
+        venueMatches[maxV] = venueMatches[maxV]! - c.matches;
+        venueMatches[minV] = venueMatches[minV]! + c.matches;
+        venueCells[maxV]!.remove(bestMoveIdx);
+        venueCells[minV]!.add(bestMoveIdx);
+        cellVenue[bestMoveIdx] = minV;
+        rebuildAgesSets();
       } else {
-        maxMap[c.grade] = (matches: newMatches, groups: newGroups);
+        break;
       }
-      final tgtMap = venueGradeLoad[bestTargetV!]!;
-      final tgtCur = tgtMap[c.grade] ?? (matches: 0, groups: 0);
-      tgtMap[c.grade] = (
-        matches: tgtCur.matches + c.matches,
-        groups: tgtCur.groups + c.groups,
-      );
-      cellVenue[bestIdx] = bestTargetV;
-      // 연령 집합 갱신: tgt 에 추가, maxV 에서 그 age 가 더 이상 없으면 제거.
-      venueAges[bestTargetV]!.add(c.age);
-      final stillHas = allCells
-          .asMap()
-          .entries
-          .any((e) =>
-              cellVenue[e.key] == maxV && e.value.age == c.age);
-      if (!stillHas) venueAges[maxV]!.remove(c.age);
     }
 
     // 4) 일자별 배정 맵에 반영. allCells (활성 셀) 만 덮어쓴다.
@@ -1406,6 +1405,7 @@ class _BracketScreenState extends State<BracketScreen>
       _preAiAssignMap = (day: day, snapshot: snapshot);
     });
     _persistTournament();
+    _saveDayAssign();
   }
 
   /// AI 자동배정을 실행 직전 상태로 되돌림. 스냅샷이 기록된 일자만 복원.
@@ -1423,6 +1423,7 @@ class _BracketScreenState extends State<BracketScreen>
       _preAiAssignMap = null;
     });
     _persistTournament();
+    _saveDayAssign();
   }
 
   /// 현재 일자(_selectedScheduleDay) 의 모든 셀을 첫 경기장으로 재설정.
@@ -1444,6 +1445,7 @@ class _BracketScreenState extends State<BracketScreen>
       _preAiAssignMap = null;
     });
     _persistTournament();
+    _saveDayAssign();
   }
 
   /// 경기장 삭제. 마지막 1개는 삭제 불가(최소 1개 유지).
@@ -1781,6 +1783,20 @@ class _BracketScreenState extends State<BracketScreen>
             activeGrades: _activeGrades,
             matchScores: _matchScores,
             autoMergeAges: _autoMergeAges,
+            totalDays: _totalDays,
+            divisionDay: (d) {
+              // 첫 매칭 일자 찾기. (event, age, grade) 모두 그 일자의 셋에 포함되어야.
+              for (int day = 1; day <= _totalDays; day++) {
+                final events = _dayEvents[day] ?? const <String>[];
+                if (!events.contains(d.event)) continue;
+                final ages = _dayEventAges[day]?[d.event];
+                if (ages != null && !ages.contains(d.ageGroup)) continue;
+                final grades = _dayEventGrades[day]?[d.event];
+                if (grades != null && !grades.contains(d.grade)) continue;
+                return day;
+              }
+              return 1; // 매칭 안 되면 1일차로 폴백
+            },
             onChanged: (events, divisions) {
               setState(() {
                 _tournament = _tournament.copyWith(
@@ -4491,6 +4507,7 @@ class _AssignTableState extends State<_AssignTable> {
                     .putIfAbsent(day, () => <AssignKey, String>{});
                 dayMap[key] = venueId;
               });
+              s._saveDayAssign();
               s._persistTournamentDebounced();
             },
             child: Container(

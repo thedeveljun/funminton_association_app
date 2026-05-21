@@ -19,7 +19,7 @@ class Venue {
 
   static const List<String> defaultColors = [
     '#1a3a8f',
-    '#2a7d4f',
+    '#06618f', // 2번 경기장 기본 — 짙은 청록빛 파란색
     '#9c4221',
     '#553ab7',
     '#b7791f',
