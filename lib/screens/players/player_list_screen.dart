@@ -3,6 +3,7 @@ import '../../core/theme/app_colors.dart';
 import '../../models/player.dart';
 import '../../services/sample_data.dart';
 import '../../services/storage_service.dart';
+import '../../utils/age_group.dart';
 import '../../widgets/players/player_list_item.dart';
 import '../clubs/upload_screen.dart';
 import 'player_detail_screen.dart';
@@ -36,6 +37,15 @@ class _PlayerListScreenState extends State<PlayerListScreen> {
   /// 다중 선택된 급수. 비어 있으면 0명.
   final Set<String> _activeGrades = {..._defaultGrades};
 
+  /// 기본 연령 그룹 라벨 (참가자 탭과 동일한 숫자 라벨).
+  static const List<String> _defaultAges = ['20', '30', '40', '50', '60', '70'];
+
+  /// 표시 순서: 기본 + 사용자 추가
+  List<String> _allAges = List.of(_defaultAges);
+
+  /// 다중 선택된 연령 그룹. 비어 있으면 0명.
+  final Set<String> _activeAges = {..._defaultAges};
+
   String _genderFilter = '전체';
   /// '클럽별' 정렬 (클럽명 가나다 순, 그룹 내 나이 오름차순)
   bool _sortByClub = false;
@@ -61,6 +71,7 @@ class _PlayerListScreenState extends State<PlayerListScreen> {
   void initState() {
     super.initState();
     _loadCustomGrades();
+    _loadCustomAges();
   }
 
   Future<void> _loadCustomGrades() async {
@@ -95,15 +106,6 @@ class _PlayerListScreenState extends State<PlayerListScreen> {
         _allGrades.where((g) => !_defaultGrades.contains(g)).toList();
     await StorageService.saveCustomGrades(custom);
     await StorageService.saveGradeOrder(_allGrades);
-  }
-
-  void _reorderGrade(int oldIdx, int newIdx) {
-    setState(() {
-      if (newIdx > oldIdx) newIdx--;
-      final item = _allGrades.removeAt(oldIdx);
-      _allGrades.insert(newIdx, item);
-    });
-    _persistCustomGrades();
   }
 
   void _toggleGrade(String label) {
@@ -149,6 +151,92 @@ class _PlayerListScreenState extends State<PlayerListScreen> {
       _activeGrades.remove(label);
     });
     await _persistCustomGrades();
+  }
+
+  // ─── 연령 그룹 ─────────────────────────────────
+
+  Future<void> _loadCustomAges() async {
+    final order = await StorageService.loadAgeGroupOrder();
+    final saved = await StorageService.loadCustomAgeGroups();
+    if (!mounted) return;
+    setState(() {
+      if (order != null && order.isNotEmpty) {
+        _allAges = [
+          ...order,
+          ..._defaultAges.where((g) => !order.contains(g)),
+        ];
+      } else {
+        _allAges = [
+          ..._defaultAges,
+          ...saved.where((g) => !_defaultAges.contains(g)),
+        ];
+      }
+      _activeAges.addAll(_allAges);
+    });
+  }
+
+  Future<void> _persistCustomAges() async {
+    final custom =
+        _allAges.where((g) => !_defaultAges.contains(g)).toList();
+    await StorageService.saveCustomAgeGroups(custom);
+    await StorageService.saveAgeGroupOrder(_allAges);
+  }
+
+  void _toggleAge(String label) {
+    setState(() {
+      if (_activeAges.contains(label)) {
+        _activeAges.remove(label);
+      } else {
+        _activeAges.add(label);
+      }
+    });
+  }
+
+  void _toggleAllAges() {
+    final allOn =
+        _allAges.isNotEmpty && _allAges.every(_activeAges.contains);
+    setState(() {
+      if (allOn) {
+        _activeAges.clear();
+      } else {
+        _activeAges
+          ..clear()
+          ..addAll(_allAges);
+      }
+    });
+  }
+
+  Future<void> _addCustomAge(String label) async {
+    if (_allAges.contains(label)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('이미 존재하는 연령 그룹입니다.')));
+      return;
+    }
+    setState(() {
+      final combined = [..._allAges, label];
+      // 숫자는 오름차순, 텍스트는 끝에 입력 순서.
+      final numeric = <String>[];
+      final textual = <String>[];
+      for (final l in combined) {
+        if (int.tryParse(l) != null) {
+          numeric.add(l);
+        } else {
+          textual.add(l);
+        }
+      }
+      numeric.sort((a, b) => int.parse(a).compareTo(int.parse(b)));
+      _allAges = [...numeric, ...textual];
+      _activeAges.add(label);
+    });
+    await _persistCustomAges();
+  }
+
+  Future<void> _removeCustomAge(String label) async {
+    setState(() {
+      _allAges.remove(label);
+      _activeAges.remove(label);
+    });
+    await _persistCustomAges();
   }
 
   Future<void> _confirmDeleteAllPlayers() async {
@@ -197,6 +285,11 @@ class _PlayerListScreenState extends State<PlayerListScreen> {
   List<Player> get _filtered {
     var list = SampleData.players.toList();
     list = list.where((p) => _activeGrades.contains(p.grade)).toList();
+    // 활성 연령 그룹 중 하나라도 매칭되어야 통과 (참가자 탭과 동일 정책).
+    list = list
+        .where(
+            (p) => _activeAges.any((l) => ageMatches(l, p.age, _allAges)))
+        .toList();
     if (_genderFilter != '전체') {
       list = list.where((p) => p.gender == _genderFilter).toList();
     }
@@ -244,7 +337,7 @@ class _PlayerListScreenState extends State<PlayerListScreen> {
               const Icon(Icons.arrow_back_ios_new, size: 20, color: _searchInk),
         ),
         title: const Text(
-          '선수/동호인 관리',
+          '선수관리',
           style: TextStyle(
               fontSize: 19, fontWeight: FontWeight.w700, color: _searchInk),
         ),
@@ -352,15 +445,21 @@ class _PlayerListScreenState extends State<PlayerListScreen> {
             ),
           ),
         ),
+        _AgeFilterBar(
+          allAges: _allAges,
+          activeAges: _activeAges,
+          onToggleAge: _toggleAge,
+          onToggleAll: _toggleAllAges,
+          onAddAge: _addCustomAge,
+          onRemoveAge: _removeCustomAge,
+        ),
         _GradeFilterBar(
           allGrades: _allGrades,
           activeGrades: _activeGrades,
-          defaultGrades: _defaultGrades,
           onToggleGrade: _toggleGrade,
           onToggleAll: _toggleAllGrades,
           onAddGrade: _addCustomGrade,
           onRemoveGrade: _removeCustomGrade,
-          onReorderGrade: _reorderGrade,
         ),
         _GenderSortRow(
           gender: _genderFilter,
@@ -406,27 +505,26 @@ class _PlayerListScreenState extends State<PlayerListScreen> {
 }
 
 // ═══════════════════════════════════════════════════════
-//  급수 다중 선택 필터 — 전체 마스터 토글 + 추가/삭제
+//  급수 다중 선택 필터 — 참가자 탭 _GradeToggleBar 와 동일한 패턴.
+//   · '전체' 마스터 토글 (amber)
+//   · 칩: 탭=토글, 길게 눌러=삭제 다이얼로그
+//   · + 칩: 단순 추가 다이얼로그
 // ═══════════════════════════════════════════════════════
 class _GradeFilterBar extends StatelessWidget {
   final List<String> allGrades;
   final Set<String> activeGrades;
-  final List<String> defaultGrades;
   final ValueChanged<String> onToggleGrade;
   final VoidCallback onToggleAll;
   final ValueChanged<String> onAddGrade;
   final ValueChanged<String> onRemoveGrade;
-  final void Function(int oldIdx, int newIdx) onReorderGrade;
 
   const _GradeFilterBar({
     required this.allGrades,
     required this.activeGrades,
-    required this.defaultGrades,
     required this.onToggleGrade,
     required this.onToggleAll,
     required this.onAddGrade,
     required this.onRemoveGrade,
-    required this.onReorderGrade,
   });
 
   @override
@@ -435,190 +533,343 @@ class _GradeFilterBar extends StatelessWidget {
         allGrades.isNotEmpty && allGrades.every(activeGrades.contains);
     return Container(
       color: AppColors.white,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-      child: SizedBox(
-        height: 32,
-        child: Row(children: [
-          GestureDetector(
-            onTap: onToggleAll,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 120),
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 11, vertical: 4),
-              decoration: BoxDecoration(
-                color: allOn ? AppColors.primaryMid : AppColors.white,
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(
-                  color: allOn ? AppColors.primaryMid : AppColors.gray3,
-                  width: 1.5,
-                ),
-              ),
-              child: Text(
-                '전체',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: allOn ? Colors.white : AppColors.muted,
-                  letterSpacing: -0.2,
-                ),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 3),
+      child: Row(children: [
+        GestureDetector(
+          onTap: onToggleAll,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 11, vertical: 4),
+            decoration: BoxDecoration(
+              color: allOn ? AppColors.amber : AppColors.amber2,
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: AppColors.amber, width: 1.5),
+            ),
+            child: Text(
+              '전체',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: allOn ? Colors.white : AppColors.amberText,
+                letterSpacing: -0.2,
               ),
             ),
           ),
-          const SizedBox(width: 6),
-          Expanded(
-            child: ReorderableListView.builder(
-              scrollDirection: Axis.horizontal,
-              padding: EdgeInsets.zero,
-              buildDefaultDragHandles: false,
-              proxyDecorator: (child, index, animation) => Material(
-                color: Colors.transparent,
-                child: child,
-              ),
-              itemCount: allGrades.length + 1, // 마지막은 +추가 칩
-              onReorder: (oldIdx, newIdx) {
-                // +추가 칩(마지막 인덱스)은 드래그 불가지만 안전 가드
-                if (oldIdx >= allGrades.length) return;
-                if (newIdx > allGrades.length) newIdx = allGrades.length;
-                onReorderGrade(oldIdx, newIdx);
-              },
-              itemBuilder: (ctx, i) {
-                if (i == allGrades.length) {
-                  // 스크롤 영역 마지막에 위치 → 칩이 많으면 가려지고, 끝까지 스크롤 시 노출
-                  return Padding(
-                    key: const ValueKey('__add_grade_chip__'),
-                    padding: const EdgeInsets.only(right: 7),
-                    child: _AddGradeChip(
-                        onTap: () => _showManageDialog(context)),
-                  );
-                }
-                final g = allGrades[i];
+        ),
+        const SizedBox(width: 6),
+        Expanded(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(children: [
+              ...allGrades.map((g) {
                 final on = activeGrades.contains(g);
                 return Padding(
-                  key: ValueKey(g),
                   padding: const EdgeInsets.only(right: 7),
-                  child: ReorderableDelayedDragStartListener(
-                    index: i,
-                    child: GestureDetector(
-                      onTap: () => onToggleGrade(g),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 120),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 11, vertical: 4),
-                        decoration: BoxDecoration(
+                  child: GestureDetector(
+                    onTap: () => onToggleGrade(g),
+                    onLongPress: () => _showDeleteDialog(context, g),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 120),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 11, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: on
+                            ? AppColors.primaryMid
+                            : const Color(0xFFEFF6FF),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
                           color: on
                               ? AppColors.primaryMid
-                              : const Color(0xFFEFF6FF),
-                          borderRadius: BorderRadius.circular(999),
-                          border: Border.all(
-                            color: on
-                                ? AppColors.primaryMid
-                                : const Color(0xFFBFDBFE),
-                            width: 1.5,
-                          ),
+                              : const Color(0xFFBFDBFE),
+                          width: 1.5,
                         ),
-                        child: Text(
-                          '$g${on ? ' ✓' : ''}',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight:
-                                on ? FontWeight.w600 : FontWeight.w500,
-                            color:
-                                on ? Colors.white : AppColors.primaryMid,
-                            letterSpacing: -0.2,
-                          ),
+                      ),
+                      child: Text(
+                        '$g${on ? ' ✓' : ' +'}',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight:
+                              on ? FontWeight.w600 : FontWeight.w500,
+                          color: on
+                              ? Colors.white
+                              : AppColors.primaryMid,
+                          letterSpacing: -0.2,
                         ),
                       ),
                     ),
                   ),
                 );
-              },
-            ),
+              }),
+              _AddChip(onTap: () => _showAddDialog(context)),
+            ]),
           ),
-        ]),
+        ),
+      ]),
+    );
+  }
+
+  void _showAddDialog(BuildContext context) {
+    final ctrl = TextEditingController();
+    showDialog<void>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        title: const Text('급수 추가'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: ctrl,
+              autofocus: true,
+              decoration: const InputDecoration(hintText: '예: 자강조'),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              '선수의 급수가 일치하면 자동 분류됩니다.',
+              style: TextStyle(fontSize: 11, color: AppColors.muted),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(),
+            child: const Text('취소'),
+          ),
+          TextButton(
+            onPressed: () {
+              final raw = ctrl.text.trim();
+              if (raw.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('라벨을 입력하세요.')));
+                return;
+              }
+              if (allGrades.contains(raw)) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('이미 존재하는 그룹입니다.')));
+                return;
+              }
+              onAddGrade(raw);
+              Navigator.of(dialogCtx).pop();
+            },
+            child: const Text('추가'),
+          ),
+        ],
       ),
     );
   }
 
-  void _showManageDialog(BuildContext context) {
-    final ctrl = TextEditingController();
+  void _showDeleteDialog(BuildContext context, String label) {
     showDialog<void>(
       context: context,
-      builder: (dialogCtx) => StatefulBuilder(
-        builder: (ctx, setStateD) {
-          return AlertDialog(
-            title: const Text('급수 추가/삭제'),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  TextField(
-                    controller: ctrl,
-                    autofocus: true,
-                    decoration:
-                        const InputDecoration(hintText: '예: 자강조, E조'),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    '선수의 급수가 일치하면 필터에 노출됩니다.\n칩을 길게 눌러 좌우로 드래그하면 순서를 변경할 수 있습니다.',
-                    style: TextStyle(fontSize: 11, color: AppColors.muted),
-                  ),
-                  if (allGrades.isNotEmpty) ...[
-                    const SizedBox(height: 14),
-                    const Text('급수 목록',
-                        style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.muted)),
-                    const SizedBox(height: 4),
-                    ...allGrades.map((g) => Row(children: [
-                          Expanded(
-                              child: Text(g,
-                                  style: const TextStyle(fontSize: 14))),
-                          IconButton(
-                            tooltip: '삭제',
-                            icon: const Icon(Icons.delete_outline,
-                                size: 18, color: AppColors.red),
-                            onPressed: () {
-                              onRemoveGrade(g);
-                              setStateD(() {});
-                            },
-                          ),
-                        ])),
-                  ],
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(dialogCtx).pop(),
-                child: const Text('닫기'),
-              ),
-              TextButton(
-                onPressed: () {
-                  final raw = ctrl.text.trim();
-                  if (raw.isEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('라벨을 입력하세요.')));
-                    return;
-                  }
-                  onAddGrade(raw);
-                  ctrl.clear();
-                  setStateD(() {});
-                },
-                child: const Text('추가'),
-              ),
-            ],
-          );
-        },
+      builder: (dialogCtx) => AlertDialog(
+        title: Text('$label 삭제'),
+        content: const Text(
+            '이 급수 그룹을 삭제하시겠습니까? 해당 급수 선수는 자동 필터에서 제외됩니다.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(),
+            child: const Text('취소'),
+          ),
+          TextButton(
+            onPressed: () {
+              onRemoveGrade(label);
+              Navigator.of(dialogCtx).pop();
+            },
+            child:
+                const Text('삭제', style: TextStyle(color: AppColors.red)),
+          ),
+        ],
       ),
     );
   }
 }
 
-class _AddGradeChip extends StatelessWidget {
+// ═══════════════════════════════════════════════════════
+//  연령 다중 선택 필터 — 참가자 탭 _DecadeToggleBar 와 동일한 패턴.
+//   · '연령' 마스터 토글 (amber)
+//   · 칩: 탭=토글, 길게 눌러=삭제 다이얼로그
+//   · + 칩: 숫자/텍스트 라벨 추가
+// ═══════════════════════════════════════════════════════
+class _AgeFilterBar extends StatelessWidget {
+  final List<String> allAges;
+  final Set<String> activeAges;
+  final ValueChanged<String> onToggleAge;
+  final VoidCallback onToggleAll;
+  final ValueChanged<String> onAddAge;
+  final ValueChanged<String> onRemoveAge;
+
+  const _AgeFilterBar({
+    required this.allAges,
+    required this.activeAges,
+    required this.onToggleAge,
+    required this.onToggleAll,
+    required this.onAddAge,
+    required this.onRemoveAge,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final allOn =
+        allAges.isNotEmpty && allAges.every(activeAges.contains);
+    return Container(
+      color: AppColors.white,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 3),
+      child: Row(children: [
+        GestureDetector(
+          onTap: onToggleAll,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 11, vertical: 4),
+            decoration: BoxDecoration(
+              color: allOn ? AppColors.amber : AppColors.amber2,
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: AppColors.amber, width: 1.5),
+            ),
+            child: Text(
+              '연령',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: allOn ? Colors.white : AppColors.amberText,
+                letterSpacing: -0.2,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Expanded(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(children: [
+              ...allAges.map((label) {
+                final on = activeAges.contains(label);
+                return Padding(
+                  padding: const EdgeInsets.only(right: 7),
+                  child: GestureDetector(
+                    onTap: () => onToggleAge(label),
+                    onLongPress: () =>
+                        _showDeleteDialog(context, label),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 120),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 11, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: on
+                            ? AppColors.primaryMid
+                            : const Color(0xFFEFF6FF),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                          color: on
+                              ? AppColors.primaryMid
+                              : const Color(0xFFBFDBFE),
+                          width: 1.5,
+                        ),
+                      ),
+                      child: Text(
+                        '$label${on ? ' ✓' : ' +'}',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight:
+                              on ? FontWeight.w600 : FontWeight.w500,
+                          color: on
+                              ? Colors.white
+                              : AppColors.primaryMid,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              }),
+              _AddChip(onTap: () => _showAddDialog(context)),
+            ]),
+          ),
+        ),
+      ]),
+    );
+  }
+
+  void _showAddDialog(BuildContext context) {
+    final ctrl = TextEditingController();
+    showDialog<void>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        title: const Text('연령 추가'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: ctrl,
+              autofocus: true,
+              decoration:
+                  const InputDecoration(hintText: '예: 45 또는 고등학생'),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              '숫자(20, 45 등)는 자동 나이 매칭. 텍스트는 운영자 수동 선택용.',
+              style: TextStyle(fontSize: 11, color: AppColors.muted),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(),
+            child: const Text('취소'),
+          ),
+          TextButton(
+            onPressed: () {
+              final raw = ctrl.text.trim();
+              if (raw.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('라벨을 입력하세요.')));
+                return;
+              }
+              if (allAges.contains(raw)) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('이미 존재하는 그룹입니다.')));
+                return;
+              }
+              onAddAge(raw);
+              Navigator.of(dialogCtx).pop();
+            },
+            child: const Text('추가'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showDeleteDialog(BuildContext context, String label) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        title: Text('$label 삭제'),
+        content: const Text('이 연령 그룹을 삭제하시겠습니까?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(),
+            child: const Text('취소'),
+          ),
+          TextButton(
+            onPressed: () {
+              onRemoveAge(label);
+              Navigator.of(dialogCtx).pop();
+            },
+            child:
+                const Text('삭제', style: TextStyle(color: AppColors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AddChip extends StatelessWidget {
   final VoidCallback onTap;
-  const _AddGradeChip({required this.onTap});
+  const _AddChip({required this.onTap});
 
   @override
   Widget build(BuildContext context) => Padding(

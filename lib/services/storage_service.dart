@@ -20,6 +20,10 @@ class StorageService {
   static const _kTournaments = 'data_tournaments_v1';
   static const _kCustomGrades = 'data_custom_grades_v1';
   static const _kGradeOrder = 'data_grade_order_v1';
+  static const _kCustomAgeGroups = 'data_custom_age_groups_v1';
+  static const _kAgeGroupOrder = 'data_age_group_order_v1';
+  static const _kBracketDayInactiveVenues =
+      'ui_bracket_day_inactive_venues_v1';
   static const _kScheduled = 'data_scheduled_tournaments_v1';
   static const _kNotices = 'data_notices_v1';
   static const _kBoards = 'data_boards_v1';
@@ -142,6 +146,75 @@ class StorageService {
   static Future<List<String>?> loadGradeOrder() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getStringList(_kGradeOrder);
+  }
+
+  // ─── CUSTOM AGE GROUPS ────────────────────────
+  // 선수/동호인 관리 화면의 연령 그룹 라벨 (예: '20','30','45','고등학생').
+
+  static Future<void> saveCustomAgeGroups(List<String> ages) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_kCustomAgeGroups, ages);
+  }
+
+  static Future<List<String>> loadCustomAgeGroups() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getStringList(_kCustomAgeGroups) ?? const [];
+  }
+
+  /// 칩 표시 순서 (기본 + 사용자 추가 모두 포함).
+  static Future<void> saveAgeGroupOrder(List<String> order) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_kAgeGroupOrder, order);
+  }
+
+  static Future<List<String>?> loadAgeGroupOrder() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getStringList(_kAgeGroupOrder);
+  }
+
+  // ─── 일자별 비활성 경기장 ID 집합 ───────────────
+  // `{tournamentId: {dayNum(str): [venueId1, ...]}}` — 일자별로 사용 안 할 경기장 ID.
+  // 빈 집합/일자 미수록은 '모든 경기장 활성' 의미.
+
+  static Future<void> saveBracketDayInactiveVenues(
+    String tournamentId,
+    Map<int, Set<String>> inactive,
+  ) async {
+    if (tournamentId.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_kBracketDayInactiveVenues);
+    Map<String, dynamic> map = {};
+    if (raw != null) {
+      try {
+        map = Map<String, dynamic>.from(jsonDecode(raw));
+      } catch (_) {/* 손상 시 새 맵 */}
+    }
+    map[tournamentId] = {
+      for (final e in inactive.entries) e.key.toString(): e.value.toList(),
+    };
+    await prefs.setString(_kBracketDayInactiveVenues, jsonEncode(map));
+  }
+
+  static Future<Map<int, Set<String>>?> loadBracketDayInactiveVenues(
+      String tournamentId) async {
+    if (tournamentId.isEmpty) return null;
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_kBracketDayInactiveVenues);
+    if (raw == null) return null;
+    try {
+      final map = Map<String, dynamic>.from(jsonDecode(raw));
+      final entry = map[tournamentId];
+      if (entry is! Map) return null;
+      final out = <int, Set<String>>{};
+      entry.forEach((dk, dv) {
+        final day = int.tryParse(dk.toString());
+        if (day == null || dv is! List) return;
+        out[day] = dv.map((e) => e.toString()).toSet();
+      });
+      return out;
+    } catch (_) {
+      return null;
+    }
   }
 
   // ─── 대진표 참가자 탭 종별 필터 (혼복/남복/여복) ───

@@ -100,6 +100,10 @@ class _BracketScreenState extends State<BracketScreen>
   /// [_assignMap] 는 전 일자 공통 fallback 으로 남겨두고, 일자 칩 클릭/AI 자동배정은
   /// 이 맵을 우선 읽고 쓴다.
   final Map<int, Map<AssignKey, String>> _dayAssignMap = {};
+
+  /// 일자별 비활성 경기장 ID 집합. 일자가 맵에 없거나 비어 있으면 그 일자에는 모든 경기장 활성.
+  /// 대회날짜 카드에서 일자별 사용 경기장을 토글로 선택하면 여기 누적.
+  final Map<int, Set<String>> _dayInactiveVenues = {};
   late List<Venue> _venues;
   final Map<AssignKey, String> _assignMap = {};
   Timer? _persistDebounce;
@@ -216,6 +220,7 @@ class _BracketScreenState extends State<BracketScreen>
     _loadAutoMergeAges();
     _loadSelectedPlayers();
     _loadSchedule();
+    _loadDayInactiveVenues();
     _loadEntryEventCounts();
     _loadMatchScores();
 
@@ -705,6 +710,63 @@ class _BracketScreenState extends State<BracketScreen>
         dayEventGrades: _dayEventGrades,
       );
     });
+  }
+
+  // ── 일자별 사용 경기장 (대회날짜 카드) ─────────────
+  /// 그 일자에 [venueId] 가 활성인지. 일자별 inactive 집합에 없으면 활성(기본).
+  bool _isVenueActiveOnDay(int day, String venueId) {
+    final inactive = _dayInactiveVenues[day];
+    return inactive == null || !inactive.contains(venueId);
+  }
+
+  /// 그 일자에 사용 가능한 (courts > 0 + 활성) 경기장 목록.
+  List<Venue> _venuesActiveOnDay(int day) => _venues
+      .where((v) => v.courts > 0 && _isVenueActiveOnDay(day, v.id))
+      .toList();
+
+  /// 일자별 경기장 활성/비활성 토글. 최소 1개는 활성으로 남아야 함.
+  void _toggleVenueOnDay(int day, String venueId) {
+    final inactive = _dayInactiveVenues.putIfAbsent(day, () => <String>{});
+    final wasInactive = inactive.contains(venueId);
+    if (wasInactive) {
+      setState(() {
+        inactive.remove(venueId);
+        if (inactive.isEmpty) _dayInactiveVenues.remove(day);
+      });
+    } else {
+      final remaining = _venues
+          .where((v) =>
+              v.id != venueId &&
+              v.courts > 0 &&
+              !inactive.contains(v.id))
+          .length;
+      if (remaining < 1) return;
+      setState(() => inactive.add(venueId));
+    }
+    StorageService.saveBracketDayInactiveVenues(
+        _tournament.id, _dayInactiveVenues);
+  }
+
+  Future<void> _loadDayInactiveVenues() async {
+    final saved =
+        await StorageService.loadBracketDayInactiveVenues(_tournament.id);
+    if (!mounted || saved == null) return;
+    setState(() {
+      _dayInactiveVenues.clear();
+      _dayInactiveVenues.addAll(saved);
+    });
+  }
+
+  /// 대진표 탭에 전달할 통합 배정 맵 — 플랫 [_assignMap] 위에 일자별
+  /// [_dayAssignMap] 을 덮어쓴다. (셀 탭/AI 자동배정은 _dayAssignMap 에만 쓰는데
+  /// BracketGeneratorTab 은 flat 만 읽어서 일자별 배정이 대진표에 안 보이던 문제 보정.)
+  Map<AssignKey, String> get _effectiveAssignMap {
+    final merged = Map<AssignKey, String>.from(_assignMap);
+    for (int d = 1; d <= _totalDays; d++) {
+      final dayMap = _dayAssignMap[d];
+      if (dayMap != null) merged.addAll(dayMap);
+    }
+    return merged;
   }
 
   /// `_assignMap` 의 `AssignKey` 를 `Tournament.assignMap` 직렬화 키로 변환.
@@ -1714,7 +1776,7 @@ class _BracketScreenState extends State<BracketScreen>
             selectedPlayers: SampleData.players
                 .where((p) => _selected.contains(p.id))
                 .toList(),
-            assignMap: _assignMap,
+            assignMap: _effectiveAssignMap,
             activeAgeGroups: _activeAgeGroups,
             activeGrades: _activeGrades,
             matchScores: _matchScores,
@@ -2033,7 +2095,7 @@ class _DecadeToggleBar extends StatelessWidget {
     showDialog<void>(
       context: context,
       builder: (dialogCtx) => AlertDialog(
-        title: const Text('연령 그룹 추가'),
+        title: const Text('연령 추가'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -2256,7 +2318,7 @@ class _GradeToggleBar extends StatelessWidget {
     showDialog<void>(
       context: context,
       builder: (dialogCtx) => AlertDialog(
-        title: const Text('급수 그룹 추가'),
+        title: const Text('급수 추가'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -2576,7 +2638,6 @@ class _SettingsTab extends StatelessWidget {
         child: Column(children: [
           _DateCard(s),
           _MatchTimeCard(s),
-          _EventGradeCard(s),
           ...List.generate(s._venues.length,
               (i) => _VenueEditCard(s: s, index: i)),
           // + 경기장 추가
@@ -2601,6 +2662,7 @@ class _SettingsTab extends StatelessWidget {
               ),
             ),
           ),
+          _EventGradeCard(s),
           _AssignTable(s),
           _PriorityCard(s),
           _CourtSummary(s),
@@ -3017,30 +3079,62 @@ class _DateCard extends StatelessWidget {
           ),
           const SizedBox(width: 6),
           Expanded(
-            child: TextField(
-                controller: _ctrl(day),
-                style: const TextStyle(fontSize: 14, height: 1.0),
-                decoration: const InputDecoration(
-                    isDense: true,
-                    isCollapsed: true,
-                    contentPadding:
-                        EdgeInsets.symmetric(horizontal: 8, vertical: 7),
-                    suffixIcon: Padding(
-                        padding: EdgeInsets.only(right: 6),
-                        child: Icon(Icons.calendar_today, size: 13)),
-                    suffixIconConstraints:
-                        BoxConstraints(minWidth: 20, minHeight: 20))),
+            child: Builder(builder: (ctx) {
+              return TextField(
+                  controller: _ctrl(day),
+                  readOnly: true,
+                  onTap: () => _pickDate(ctx, day),
+                  style: const TextStyle(fontSize: 14, height: 1.0),
+                  decoration: const InputDecoration(
+                      isDense: true,
+                      isCollapsed: true,
+                      contentPadding:
+                          EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+                      suffixIcon: Padding(
+                          padding: EdgeInsets.only(right: 6),
+                          child: Icon(Icons.calendar_today, size: 13)),
+                      suffixIconConstraints:
+                          BoxConstraints(minWidth: 20, minHeight: 20)));
+            }),
           ),
+          const SizedBox(width: 6),
+          _StartTimeButton(s: s, day: day),
         ],
       );
+
+  /// 날짜 picker 열기. 현재 컨트롤러 값을 initial 로, 선택 후 'YYYY-MM-DD' 로 갱신.
+  /// 컨트롤러 listener 가 _saveScheduleDebounced 호출하므로 별도 저장 코드 불필요.
+  Future<void> _pickDate(BuildContext context, int day) async {
+    final ctrl = _ctrl(day);
+    DateTime initial = DateTime.now();
+    try {
+      final parts = ctrl.text.trim().split('-');
+      if (parts.length == 3) {
+        final y = int.parse(parts[0]);
+        final m = int.parse(parts[1]);
+        final d = int.parse(parts[2]);
+        initial = DateTime(y, m, d);
+      }
+    } catch (_) {/* invalid → today */}
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2099, 12, 31),
+    );
+    if (picked == null) return;
+    final yy = picked.year.toString().padLeft(4, '0');
+    final mm = picked.month.toString().padLeft(2, '0');
+    final dd = picked.day.toString().padLeft(2, '0');
+    ctrl.text = '$yy-$mm-$dd';
+  }
 
   @override
   Widget build(BuildContext context) => _card(
         title: '대회날짜',
         subtitle: '최대 ${_BracketScreenState._maxDays}일',
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          _dateField(1),
-          const SizedBox(height: 4),
+          // 대회 일수 셀렉터 — 카드 최상단에 노출.
           Row(children: [
             for (int d = 1; d <= _BracketScreenState._maxDays; d++) ...[
               if (d > 1) const SizedBox(width: 6),
@@ -3055,34 +3149,152 @@ class _DateCard extends StatelessWidget {
               }),
             ],
           ]),
+          const SizedBox(height: 6),
+          _dateField(1),
+          _dayVenueRow(1),
           for (int d = 2; d <= s._totalDays; d++) ...[
             const SizedBox(height: 4),
             _dateField(d),
+            _dayVenueRow(d),
           ],
         ]),
       );
+
+  /// 그 일자에 사용할 경기장 토글 행 — 정의된 경기장이 2개 이상일 때만 노출.
+  /// 칩 탭으로 ON/OFF. 활성 경기장은 venue 색으로, 비활성은 회색으로 표시.
+  /// 최소 1개는 ON 으로 남아야 함 (가드).
+  Widget _dayVenueRow(int day) {
+    if (s._venues.length < 2) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(46, 4, 0, 0),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(children: [
+          const Text('사용 경기장',
+              style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.muted)),
+          const SizedBox(width: 6),
+          for (int i = 0; i < s._venues.length; i++) ...[
+            if (i > 0) const SizedBox(width: 4),
+            Builder(builder: (_) {
+              final v = s._venues[i];
+              final on = s._isVenueActiveOnDay(day, v.id);
+              final label = v.name.isEmpty ? '경기장 ${i + 1}' : v.name;
+              final hex = v.colorHex.replaceAll('#', '');
+              Color color;
+              try {
+                color = Color(int.parse('FF$hex', radix: 16));
+              } catch (_) {
+                color = AppColors.blue;
+              }
+              return GestureDetector(
+                onTap: () => s._toggleVenueOnDay(day, v.id),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 120),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: on ? color : Colors.white,
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(
+                        color: on ? color : AppColors.gray3, width: 1.3),
+                  ),
+                  child: Text(
+                    on ? '$label ✓' : label,
+                    style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: on ? Colors.white : AppColors.muted),
+                  ),
+                ),
+              );
+            }),
+          ],
+        ]),
+      ),
+    );
+  }
 
   Widget _dayBtn(String lbl, bool on, VoidCallback onTap) => Expanded(
         child: GestureDetector(
           onTap: onTap,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 120),
-            padding: const EdgeInsets.symmetric(vertical: 4),
+            padding: const EdgeInsets.symmetric(vertical: 5),
             decoration: BoxDecoration(
-                color: on ? AppColors.blue2 : AppColors.gray,
+                color: on ? AppColors.blue2 : Colors.white,
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(
-                    color: on ? AppColors.blue2 : Colors.transparent,
+                    color: on ? AppColors.blue2 : AppColors.gray3,
                     width: 1.5)),
             child: Center(
                 child: Text(lbl,
                     style: TextStyle(
                         fontSize: 13,
-                        fontWeight: FontWeight.w600,
+                        fontWeight: FontWeight.w700,
                         color: on ? Colors.white : AppColors.text2))),
           ),
         ),
       );
+}
+
+/// 일자별 경기 시작 시간 칩 — 탭하면 TimePicker 열림.
+/// 데이터는 [_BracketScreenState._tournament.daySchedule] 와 공유되므로 경기시간 카드와
+/// 자동 동기화 (한 곳에서 바꿔도 다른 곳에 반영).
+class _StartTimeButton extends StatelessWidget {
+  final _BracketScreenState s;
+  final int day;
+  const _StartTimeButton({required this.s, required this.day});
+
+  Future<void> _pick(BuildContext context) async {
+    final cur = s._tournament.daySchedule(day).startTime;
+    final parts = cur.split(':');
+    final initial = TimeOfDay(
+      hour: int.tryParse(parts.isNotEmpty ? parts[0] : '') ?? 9,
+      minute: int.tryParse(parts.length > 1 ? parts[1] : '') ?? 0,
+    );
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: initial,
+      initialEntryMode: TimePickerEntryMode.input,
+      builder: (ctx, child) => MediaQuery(
+        data: MediaQuery.of(ctx).copyWith(alwaysUse24HourFormat: true),
+        child: child!,
+      ),
+    );
+    if (picked == null) return;
+    final hh = picked.hour.toString().padLeft(2, '0');
+    final mm = picked.minute.toString().padLeft(2, '0');
+    s._updateDaySchedule(day, startTime: '$hh:$mm');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final time = s._tournament.daySchedule(day).startTime;
+    const skyBlue = Color(0xFF0996F2);
+    return GestureDetector(
+      onTap: () => _pick(context),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        decoration: BoxDecoration(
+          color: skyBlue,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: skyBlue, width: 1.4),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          const Icon(Icons.access_time, size: 13, color: Colors.white),
+          const SizedBox(width: 4),
+          Text(time,
+              style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white)),
+        ]),
+      ),
+    );
+  }
 }
 
 /// 공용 ⊖/⊕ 동그라미 버튼
@@ -3247,6 +3459,7 @@ class _MatchTimeCardState extends State<_MatchTimeCard> {
     final picked = await showTimePicker(
       context: context,
       initialTime: initial,
+      initialEntryMode: TimePickerEntryMode.input,
       builder: (ctx, child) => MediaQuery(
         data: MediaQuery.of(ctx).copyWith(alwaysUse24HourFormat: true),
         child: child!,
@@ -3269,6 +3482,7 @@ class _MatchTimeCardState extends State<_MatchTimeCard> {
     final picked = await showTimePicker(
       context: context,
       initialTime: initial,
+      initialEntryMode: TimePickerEntryMode.input,
       builder: (ctx, child) => MediaQuery(
         data: MediaQuery.of(ctx).copyWith(alwaysUse24HourFormat: true),
         child: child!,
@@ -3297,118 +3511,45 @@ class _MatchTimeCardState extends State<_MatchTimeCard> {
   }
 
   Widget _dayBlock(int day) {
-    final showHeader = widget.s._totalDays > 1;
     final breakOn = _breakOn[day - 1];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // [N일차] 시작시간 [09:00]  경기당 [30]  ← 한 줄
-        Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-          if (showHeader) ...[
-            Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(
-                color: const Color(0xFF3730A3),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Text('$day일차',
-                  style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.white)),
-            ),
-            const SizedBox(width: 8),
-          ],
-          const Text('시작시간',
-              style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.text2)),
-          const SizedBox(width: 6),
-          Expanded(
-            child: TextField(
-              controller: _startCtrls[day - 1],
-              readOnly: true,
-              onTap: () => _pickStartTime(day),
-              style: const TextStyle(
-                  fontSize: 15, fontWeight: FontWeight.w500, height: 1.0),
-              decoration: const InputDecoration(
-                isDense: true,
-                isCollapsed: true,
-                hintText: '09:00',
-                contentPadding:
-                    EdgeInsets.symmetric(horizontal: 8, vertical: 7),
-                suffixIcon: Padding(
-                  padding: EdgeInsets.only(right: 6),
-                  child: Icon(Icons.schedule, size: 13),
-                ),
-                suffixIconConstraints:
-                    BoxConstraints(minWidth: 20, minHeight: 20),
+        // [N일차 중간 휴식시간 (개회식 등)] + ON/OFF 토글
+        SizedBox(
+          height: 28,
+          child: Row(children: [
+            Expanded(
+              child: Text.rich(
+                TextSpan(children: [
+                  TextSpan(
+                      text: '$day일차 중간 휴식시간',
+                      style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.text2)),
+                  const TextSpan(
+                    text: '  (개회식 등)',
+                    style: TextStyle(
+                        fontSize: 11,
+                        color: AppColors.muted,
+                        fontWeight: FontWeight.w500),
+                  ),
+                ]),
               ),
             ),
-          ),
-          if (day == 1) ...[
-            const SizedBox(width: 10),
-            const Text('경기당',
-                style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.text2)),
-            const SizedBox(width: 6),
-            SizedBox(
-              width: 64,
-              child: TextField(
-                controller: _durationCtrl,
-                keyboardType: TextInputType.number,
-                style: const TextStyle(
-                    fontSize: 15, fontWeight: FontWeight.w500, height: 1.0),
-                decoration: const InputDecoration(
-                  isDense: true,
-                  isCollapsed: true,
-                  hintText: '30',
-                  suffixText: '분',
-                  contentPadding:
-                      EdgeInsets.symmetric(horizontal: 8, vertical: 7),
-                ),
-                onChanged: (v) {
-                  final n = int.tryParse(v.trim());
-                  if (n != null && n >= 0) {
-                    widget.s._updateMatchTiming(durationMinutes: n);
-                  }
-                },
+            Transform.scale(
+              scale: 0.8,
+              child: Switch(
+                value: breakOn,
+                onChanged: (v) => _toggleBreak(day, v),
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
               ),
             ),
-          ],
-        ]),
-        const SizedBox(height: 6),
-        Row(children: [
-          const Text('중간 휴식시간',
-              style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.text2)),
-          const SizedBox(width: 6),
-          const Flexible(
-            child: Text('(개회식 등)',
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                    fontSize: 11,
-                    color: AppColors.muted,
-                    fontWeight: FontWeight.w500)),
-          ),
-          const Spacer(),
-          Transform.scale(
-            scale: 0.8,
-            child: Switch(
-              value: breakOn,
-              onChanged: (v) => _toggleBreak(day, v),
-              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-          ),
-        ]),
+          ]),
+        ),
         if (breakOn) ...[
-          const SizedBox(height: 4),
+          const SizedBox(height: 2),
           Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Expanded(
               child: TextField(
@@ -3465,17 +3606,59 @@ class _MatchTimeCardState extends State<_MatchTimeCard> {
   @override
   Widget build(BuildContext context) {
     final days = widget.s._totalDays;
-    return _card(
-      title: '경기시간',
-      subtitle: '운영자 입력 — 대진표 일정에 적용',
+    return Container(
+      margin: const EdgeInsets.fromLTRB(10, 4, 10, 0),
+      decoration: BoxDecoration(
+        color: AppColors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFB8C9F0), width: 2.5),
+      ),
+      padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          for (int d = 1; d <= days; d++) ...[
-            if (d > 1) const Padding(
-              padding: EdgeInsets.symmetric(vertical: 6),
-              child: Divider(height: 1, color: AppColors.divider),
+          // 제목 + 경기당 입력을 한 줄에 배치.
+          Row(children: [
+            const Text('경기시간',
+                style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.text2)),
+            const Spacer(),
+            const Text('경기당',
+                style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.text2)),
+            const SizedBox(width: 6),
+            SizedBox(
+              width: 72,
+              child: TextField(
+                controller: _durationCtrl,
+                keyboardType: TextInputType.number,
+                style: const TextStyle(
+                    fontSize: 15, fontWeight: FontWeight.w500, height: 1.0),
+                decoration: const InputDecoration(
+                  isDense: true,
+                  isCollapsed: true,
+                  hintText: '30',
+                  suffixText: '분',
+                  contentPadding:
+                      EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                ),
+                onChanged: (v) {
+                  final n = int.tryParse(v.trim());
+                  if (n != null && n >= 0) {
+                    widget.s._updateMatchTiming(durationMinutes: n);
+                  }
+                },
+              ),
             ),
+          ]),
+          const Divider(height: 8, color: AppColors.divider),
+          for (int d = 1; d <= days; d++) ...[
+            if (d > 1)
+              const Divider(height: 6, color: AppColors.divider),
             _dayBlock(d),
           ],
         ],
@@ -3956,9 +4139,14 @@ class _AssignTableState extends State<_AssignTable> {
     // 경기정보 카드와 동일한 일자 선택 사용 (_selectedScheduleDay).
     final selDay = s._selectedScheduleDay.clamp(1, s._totalDays);
 
-    final venues = s._venues;
-    if (venues.isEmpty) {
+    if (s._venues.isEmpty) {
       return _placeholder('* 경기장을 먼저 추가하세요.');
+    }
+    // 컬럼: 그 일자에 사용 가능한 경기장만 (대회날짜 카드의 일자별 사용 경기장 토글 반영).
+    final venues = s._venuesActiveOnDay(selDay);
+    if (venues.isEmpty) {
+      return _placeholder(
+          '* $selDay일차에 사용할 경기장이 없습니다. 대회날짜에서 경기장을 선택하세요.');
     }
 
     // 해당 일자의 종별 (경기정보 카드에서 선택).

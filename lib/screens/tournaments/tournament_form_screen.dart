@@ -667,7 +667,7 @@ class _TournamentFormScreenState extends State<TournamentFormScreen> {
                   ),
                   const SizedBox(height: 8),
                   const Text(
-                    '추가한 급수는 선수/동호인 관리 화면과 공유됩니다.',
+                    '추가한 급수는 선수관리 화면과 공유됩니다.',
                     style: TextStyle(fontSize: 11, color: AppColors.muted),
                   ),
                   if (_targetGrades.isNotEmpty) ...[

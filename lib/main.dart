@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'core/constants/app_config.dart';
 import 'core/theme/app_theme.dart';
 import 'screens/auth/root_gate.dart';
@@ -38,6 +39,14 @@ class BadmintonAssociationApp extends StatelessWidget {
       title: '배드민턴 협회',
       theme: AppTheme.light,
       debugShowCheckedModeBanner: false,
+      // 한국어 로컬라이제이션 — TimePicker / DatePicker 등 머티리얼 위젯 라벨이 한글로.
+      locale: const Locale('ko', 'KR'),
+      supportedLocales: const [Locale('ko', 'KR'), Locale('en', 'US')],
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       home: const RootGate(),
       builder: (context, child) => MediaQuery(
         data: MediaQuery.of(context).copyWith(textScaler: TextScaler.noScaling),
