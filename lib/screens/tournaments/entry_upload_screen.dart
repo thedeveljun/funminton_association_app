@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
@@ -162,6 +163,185 @@ class _EntryUploadScreenState extends State<EntryUploadScreen> {
     }
   }
 
+  /// DEV: 가상 1200명 명단 즉시 생성 — 엑셀 파싱 우회.
+  /// excel 패키지가 1200줄 파싱에 수십초 걸려서 폰에서 행 — Dart 인메모리 생성으로 대체.
+  /// 시드 고정 → 매 호출 동일 결과.
+  void _loadFakeAsset() {
+    setState(() {
+      _errorMsg = null;
+      _warningMsg = null;
+      _preview = [];
+      _fileName = '가상_명단_1200 (Dart 생성)';
+      _uploaded = false;
+      _isLoading = true;
+    });
+    try {
+      _preview = _generateFake1200();
+      setState(() {
+        _warningMsg = '가상 데이터 1200건 생성 완료. 하단 \'등록\' 버튼을 눌러 반영하세요.';
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _errorMsg = '가상 데이터 생성 실패: $e';
+        _isLoading = false;
+      });
+    }
+  }
+
+  /// 가상 1200건 (남복/여복/혼복 각 200팀) — tool/generate_fake_entries.dart 와 동일 로직.
+  List<EntryRow> _generateFake1200() {
+    final rng = math.Random(20260521);
+    int seq = 0;
+    String nextPhone() {
+      seq++;
+      final mid = 1000 + rng.nextInt(9000);
+      final end = (1000 + (seq * 37 + rng.nextInt(9000))) % 10000;
+      return '010-${mid.toString().padLeft(4, '0')}-${end.toString().padLeft(4, '0')}';
+    }
+
+    const events = ['남복', '여복', '혼복'];
+    const ageTeamsPerEvent = <int, int>{20: 10, 30: 25, 40: 70, 50: 65, 60: 30};
+    const gradeWeights = <String, int>{
+      '자강조': 8, 'S조': 14, 'A조': 22, 'B조': 22, 'C조': 22, 'D조': 12,
+    };
+
+    final surnames =
+        '김 이 박 최 정 강 조 윤 장 임 한 오 서 신 권 황 안 송 류 전 홍 양 손 배 백 허 유 남 심 노 하 곽 성 차 주 우 구 나 문 라 민'
+            .split(' ');
+    final maleNamesByDecade = <int, List<String>>{
+      20: '민준 서준 도윤 예준 시우 하준 주원 지호 지후 준우 건우 우진 선우 도현 현우 지환 시현 정우 승현 윤호'.split(' '),
+      30: '민수 진욱 동현 성민 재현 정훈 진영 정민 시환 우영 정현 성현 종민 한결 영재 재훈 승호 형준 재원 지훈'.split(' '),
+      40: '동건 정훈 우진 호철 호진 성수 성환 성진 영준 영석 형준 형석 진호 재훈 동훈 진영 상우 인호 정수 명환'.split(' '),
+      50: '종호 진우 성호 정민 정훈 영진 동훈 형석 형철 정수 인호 재훈 명환 상철 동현 진수 광호 정호 명수 성식'.split(' '),
+      60: '영수 철수 영호 영철 종철 진수 종수 명수 종현 영기 영민 영근 정호 충식 광식 종길 영길 종근 영진 정근'.split(' '),
+    };
+    final femaleNamesByDecade = <int, List<String>>{
+      20: '서윤 지우 서연 하은 하윤 민서 지유 윤서 채원 수아 다은 예린 시은 예원 유진 소율 가은 다인 채은 윤지'.split(' '),
+      30: '지혜 수민 수영 미영 지영 미진 진희 진경 다영 보영 보경 다은 가영 영주 수정 미경 지수 은지 혜진 보람'.split(' '),
+      40: '은경 은영 은주 정현 미정 미숙 영주 수진 윤정 윤희 윤주 효정 수경 진희 수정 정민 혜영 명진 정희 영실'.split(' '),
+      50: '미경 영미 정미 미정 경순 미숙 정숙 영선 정애 영애 미영 미향 경애 영순 정순 정선 옥희 경숙 영자 미자'.split(' '),
+      60: '영자 정숙 미숙 옥자 명자 영숙 경자 정자 점순 영희 명순 미경 정희 경희 숙자 옥분 순자 옥순 영순 금자'.split(' '),
+    };
+    final clubs = <String>[
+      '강남클럽', '송파배드민턴', '수원펀민턴', '용인스매시', '분당셔틀', '판교셔틀콕',
+      '잠실배드민턴', '동탄클럽', '광교셔틀', '평촌클럽', '의왕스매시', '안양배드민턴',
+      '인천연수클럽', '부평셔틀', '연수배드민턴', '청라스매시', '송도클럽',
+      '대전둔산클럽', '유성배드민턴', '세종스매시', '천안펀민턴',
+      '대구수성클럽', '달서배드민턴', '동구셔틀', '북구스매시',
+      '부산해운대클럽', '센텀배드민턴', '동래셔틀', '광안스매시',
+      '광주서구클럽', '북구배드민턴', '남구셔틀',
+      '울산남구클럽', '울산북구스매시', '울산동구배드민턴',
+      '제주서귀포클럽', '제주시클럽',
+      '춘천호수클럽', '원주펀민턴', '강릉바다클럽',
+      '청주배드민턴', '충주셔틀', '전주한옥클럽', '여수바다스매시',
+      '포항제철클럽', '구미금오클럽', '경주왕릉클럽',
+      '과천클럽', '안산샛별클럽', '성남모란클럽',
+    ];
+
+    final usedNames = <String, Set<String>>{'남': <String>{}, '여': <String>{}};
+    String pickName(String gender, int decade) {
+      final pool = gender == '남'
+          ? maleNamesByDecade[decade]!
+          : femaleNamesByDecade[decade]!;
+      final used = usedNames[gender]!;
+      for (var t = 0; t < 200; t++) {
+        final n = '${surnames[rng.nextInt(surnames.length)]}'
+            '${pool[rng.nextInt(pool.length)]}';
+        if (!used.contains(n)) {
+          used.add(n);
+          return n;
+        }
+      }
+      final base = '${surnames[rng.nextInt(surnames.length)]}'
+          '${pool[rng.nextInt(pool.length)]}';
+      var n = base;
+      var i = 2;
+      while (used.contains(n)) {
+        n = '$base$i';
+        i++;
+      }
+      used.add(n);
+      return n;
+    }
+
+    String pickGrade() {
+      final total = gradeWeights.values.fold(0, (a, b) => a + b);
+      final r = rng.nextInt(total);
+      var acc = 0;
+      for (final e in gradeWeights.entries) {
+        acc += e.value;
+        if (r < acc) return e.key;
+      }
+      return 'C조';
+    }
+
+    String pickBirth(int decade) {
+      const currentYear = 2026;
+      final age = decade + rng.nextInt(10);
+      final year = currentYear - age;
+      final yy = (year % 100).toString().padLeft(2, '0');
+      final m = 1 + rng.nextInt(12);
+      final d = 1 + rng.nextInt(28);
+      return '$yy${m.toString().padLeft(2, '0')}${d.toString().padLeft(2, '0')}';
+    }
+
+    String pickClub() => clubs[rng.nextInt(clubs.length)];
+
+    final out = <EntryRow>[];
+    for (final event in events) {
+      final ageSeq = <int>[];
+      ageTeamsPerEvent.forEach((dec, n) {
+        for (var i = 0; i < n; i++) ageSeq.add(dec);
+      });
+      ageSeq.shuffle(rng);
+
+      for (final decade in ageSeq) {
+        final grade = pickGrade();
+        final clubA = pickClub();
+        final sameClub = rng.nextInt(100) < 90;
+        final clubB = sameClub ? clubA : pickClub();
+
+        String gA, gB;
+        switch (event) {
+          case '남복':
+            gA = '남';
+            gB = '남';
+            break;
+          case '여복':
+            gA = '여';
+            gB = '여';
+            break;
+          default:
+            gA = '남';
+            gB = '여';
+        }
+
+        final nameA = pickName(gA, decade);
+        final nameB = pickName(gB, decade);
+        final birthA = pickBirth(decade);
+        final birthB = pickBirth(decade);
+        final phoneA = nextPhone();
+        final phoneB = nextPhone();
+
+        out.add(EntryRow(
+          name: nameA, clubName: clubA, event: event, grade: grade,
+          partnerName: nameB, partnerClubName: clubB,
+          phone: phoneA, birthDate: birthA,
+          partnerBirthDate: birthB, partnerPhone: phoneB,
+        ));
+        out.add(EntryRow(
+          name: nameB, clubName: clubB, event: event, grade: grade,
+          partnerName: nameA, partnerClubName: clubA,
+          phone: phoneB, birthDate: birthB,
+          partnerBirthDate: birthA, partnerPhone: phoneA,
+        ));
+      }
+    }
+    out.shuffle(rng);
+    return out;
+  }
+
   Future<void> _pickFile() async {
     setState(() {
       _errorMsg = null;
@@ -181,9 +361,20 @@ class _EntryUploadScreenState extends State<EntryUploadScreen> {
       _isLoading = true;
       _fileName = file.name;
     });
-
     try {
       final bytes = file.bytes ?? await File(file.path!).readAsBytes();
+      await _parseBytes(bytes);
+    } catch (e) {
+      setState(() {
+        _errorMsg = '파일을 읽을 수 없습니다: $e';
+        _isLoading = false;
+      });
+    }
+  }
+
+  /// 엑셀 바이트 파싱 본체 — _pickFile / _loadFakeAsset 공통.
+  Future<void> _parseBytes(List<int> bytes) async {
+    try {
       final excel = xl.Excel.decodeBytes(bytes);
 
       // '대회 참가신청' 시트 우선
@@ -735,6 +926,21 @@ class _EntryUploadScreenState extends State<EntryUploadScreen> {
                             backgroundColor: _blue,
                             foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(vertical: 10),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10)),
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        // DEV: 번들된 가상 1200명 즉시 로드 — 파일 선택기 우회 (테스트용).
+                        OutlinedButton.icon(
+                          onPressed: _loadFakeAsset,
+                          icon: const Icon(Icons.flash_on_rounded, size: 18),
+                          label: const Text('테스트: 가상 1200명 즉시 로드'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFF7C3AED),
+                            side: const BorderSide(
+                                color: Color(0xFF7C3AED), width: 1.4),
+                            padding: const EdgeInsets.symmetric(vertical: 8),
                             shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(10)),
                           ),

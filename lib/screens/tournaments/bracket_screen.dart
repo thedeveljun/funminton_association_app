@@ -171,6 +171,9 @@ class _BracketScreenState extends State<BracketScreen>
       // 적용하고 즉시 flag 를 세팅 → 이후 picker 로 다른 색을 선택해도 강제 안 됨.
       _applyVenue1GreenOnce();
       _applyVenue2TealOnce();
+      // 색 중복 자동 해소 — 같은 colorHex 가 두 번 등장하면 두 번째부터 미사용
+      // defaultColors 로 재할당. 첫 등장 색은 사용자 선택 보존.
+      _dedupVenueColors();
     } else {
       _venues = [
         Venue(
@@ -356,8 +359,9 @@ class _BracketScreenState extends State<BracketScreen>
       return;
     }
     // funminton 로컬 모드 — Firebase Crashlytics 미사용. 디버그 로그만 남김.
-    debugPrint('[crashlytics-stub] test crash trigger ignored in local mode');
+    debugPrint('[BracketScreen] test-crash trigger (no-op in funminton local mode)');
     messenger.showSnackBar(const SnackBar(
+      duration: Duration(seconds: 2),
       content: Text('로컬 모드 — Crashlytics 비활성 상태입니다.'),
     ));
   }
@@ -1094,6 +1098,29 @@ class _BracketScreenState extends State<BracketScreen>
     });
   }
 
+  /// venue colorHex 중복 자동 해소. 같은 색이 2회 이상이면 두 번째부터 미사용
+  /// defaultColors 중 하나로 교체 — 결과적으로 venue 최대 4개까지 색이 겹치지 않음.
+  /// 5개 이상이면 unused 가 없어 폴백 인덱스 순환(불가피한 중복).
+  void _dedupVenueColors() {
+    final used = <String>{};
+    bool changed = false;
+    for (var i = 0; i < _venues.length; i++) {
+      final cur = _venues[i].colorHex.toLowerCase();
+      if (!used.contains(cur)) {
+        used.add(cur);
+        continue;
+      }
+      final newHex = Venue.defaultColors.firstWhere(
+        (hex) => !used.contains(hex.toLowerCase()),
+        orElse: () => Venue.defaultColors[i % Venue.defaultColors.length],
+      );
+      _venues[i] = _venues[i].copyWith(colorHex: newHex);
+      used.add(newHex.toLowerCase());
+      changed = true;
+    }
+    if (changed) _syncVenuesToTournament(debounce: false);
+  }
+
   /// 1회성 보정: 1번 경기장 색을 녹색(#2a7d4f) 으로 한 번만 변경. flag 로 가드.
   /// (flag 가 이미 true 면 사용자가 picker 로 골랐을 색을 덮어쓰지 않는다.)
   Future<void> _applyVenue1GreenOnce() async {
@@ -1130,11 +1157,17 @@ class _BracketScreenState extends State<BracketScreen>
     });
   }
 
-  /// 새 경기장 1개 추가. 기본 4코트, 색상은 `Venue.defaultColors` 순환.
+  /// 새 경기장 1개 추가. 기본 4코트, 색상은 아직 안 쓰인 `Venue.defaultColors`
+  /// 우선 — 4개까지는 mint/amber/sky/violet 이 겹치지 않고 자동 배정됨.
+  /// 5번째 이후는 다 사용됐으므로 길이 % 4 로 폴백(이때부터는 색 중복 불가피).
   void _addVenue() {
     final id = 'v${DateTime.now().millisecondsSinceEpoch}';
-    final color =
-        Venue.defaultColors[_venues.length % Venue.defaultColors.length];
+    final used = _venues.map((v) => v.colorHex.toLowerCase()).toSet();
+    final color = Venue.defaultColors.firstWhere(
+      (hex) => !used.contains(hex.toLowerCase()),
+      orElse: () =>
+          Venue.defaultColors[_venues.length % Venue.defaultColors.length],
+    );
     setState(() {
       _venues.add(Venue(
         id: id,
@@ -1854,41 +1887,43 @@ class _ParticipantsTab extends StatelessWidget {
         color: AppColors.white,
         padding: const EdgeInsets.fromLTRB(14, 0, 14, 2),
         child: Row(children: [
-          // 참가자 추가는 manager+ 만 노출 — 익명/player 는 보안규칙에서 write 가
-          // 거부되므로 UI 자체를 숨겨 카운터만 증가하다 stream emit 으로 사라지는
-          // 혼란을 차단한다.
-          ValueListenableBuilder<String>(
-            valueListenable: AuthService.instance.currentRole,
-            builder: (_, role, __) {
-              if (!UserRole.isManagerOrAdmin(role)) {
-                return const SizedBox.shrink();
-              }
-              return _PillBtn(
-                icon: Icons.person_add_alt_1_rounded,
-                label: '참가자 추가',
-                onTap: () => _onParticipantAdd(context, s),
-                bg: const Color(0xFF3730A3),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 20, vertical: 7),
-                fontSize: 13,
-              );
-            },
+          // funminton 동작 이식 — role 무관하게 항상 노출. (Firestore 보안규칙이
+          // 실제 write 권한을 게이트하므로 보안에는 영향 없음.)
+          _PillBtn(
+            icon: Icons.person_add_alt_1_rounded,
+            label: '참가자 추가',
+            onTap: () => _onParticipantAdd(context, s),
+            bg: const Color(0xFF3730A3),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+            fontSize: 13,
+          ),
+          const SizedBox(width: 6),
+          // DEV: 가상 1200명 즉시 시드 — 아이콘만 노출 (오버플로우 회피).
+          _PillBtn(
+            icon: Icons.flash_on_rounded,
+            label: '1200',
+            onTap: () => _seedFake1200(context, s),
+            bg: const Color(0xFF7C3AED),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+            fontSize: 12,
           ),
           const Spacer(),
           _PillBtn(
             label: '등급별',
             onTap: () => _showGradeSummary(context, s),
             bg: AppColors.muted,
-            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
-            fontSize: 13,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+            fontSize: 12,
           ),
-          const SizedBox(width: 6),
+          const SizedBox(width: 4),
           _PillBtn(
             label: '클럽별',
             onTap: () => _showClubLookup(context, s),
             bg: AppColors.muted,
-            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
-            fontSize: 13,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+            fontSize: 12,
           ),
         ]),
       ),
@@ -3198,31 +3233,29 @@ class _DateCard extends StatelessWidget {
               final v = s._venues[i];
               final on = s._isVenueActiveOnDay(day, v.id);
               final label = v.name.isEmpty ? '경기장 ${i + 1}' : v.name;
-              final hex = v.colorHex.replaceAll('#', '');
-              Color color;
-              try {
-                color = Color(int.parse('FF$hex', radix: 16));
-              } catch (_) {
-                color = AppColors.blue;
-              }
+              // 18.jpg 디자인: 옅은 palette.chip 배경 + 검정 글자.
+              // 통합 헬퍼 — 앱 전체에서 동일 정책으로 색 결정.
+              final palette =
+                  AppColors.venuePaletteForVenue(v, s._venues);
               return GestureDetector(
                 onTap: () => s._toggleVenueOnDay(day, v.id),
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 120),
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 8, vertical: 3),
+                      horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
-                    color: on ? color : Colors.white,
+                    color: on ? palette.chip : Colors.white,
                     borderRadius: BorderRadius.circular(999),
                     border: Border.all(
-                        color: on ? color : AppColors.gray3, width: 1.3),
+                        color: on ? palette.chip : AppColors.gray3,
+                        width: 1.3),
                   ),
                   child: Text(
                     on ? '$label ✓' : label,
                     style: TextStyle(
                         fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: on ? Colors.white : AppColors.muted),
+                        fontWeight: FontWeight.w700,
+                        color: on ? AppColors.text : AppColors.muted),
                   ),
                 ),
               );
@@ -3322,22 +3355,17 @@ class _VenueColorChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final clean = colorHex.replaceAll('#', '');
-    Color color;
-    try {
-      color = Color(int.parse('FF$clean', radix: 16));
-    } catch (_) {
-      color = AppColors.blue;
-    }
+    // 옅은 palette.chip 배경 — 18.jpg venue 칩과 톤 통일.
+    final palette = AppColors.venuePaletteFor(colorHex);
     return GestureDetector(
       onTap: onPick,
       child: Container(
         width: 22,
         height: 22,
         decoration: BoxDecoration(
-          color: color,
+          color: palette.chip,
           shape: BoxShape.circle,
-          border: Border.all(color: const Color(0xFFCBD5E1), width: 1.4),
+          border: Border.all(color: AppColors.divider, width: 1.4),
         ),
       ),
     );
@@ -3902,34 +3930,47 @@ class _VenueEditCardState extends State<_VenueEditCard> {
     super.dispose();
   }
 
-  /// 색 팔레트 다이얼로그. `Venue.defaultColors` 6색을 칩으로 보여주고 선택 시 갱신.
+  /// 색 팔레트 다이얼로그. 4가지 venue palette 를 라벨 칩으로 표시 — 18.jpg 톤.
   Future<void> _pickVenueColor(BuildContext ctx, String current) async {
     final picked = await showDialog<String>(
       context: ctx,
       builder: (dctx) => AlertDialog(
         title: const Text('경기장 색상'),
         content: Wrap(
-          spacing: 10,
-          runSpacing: 10,
+          spacing: 8,
+          runSpacing: 8,
           children: [
             for (final hex in Venue.defaultColors)
-              GestureDetector(
-                onTap: () => Navigator.pop(dctx, hex),
-                child: Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: _hexToColor(hex),
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: hex.toLowerCase() == current.toLowerCase()
-                          ? AppColors.text
-                          : Colors.transparent,
-                      width: 3,
+              Builder(builder: (_) {
+                final palette = AppColors.venuePaletteFor(hex);
+                final selected =
+                    hex.toLowerCase() == current.toLowerCase();
+                return GestureDetector(
+                  onTap: () => Navigator.pop(dctx, hex),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: palette.chip,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(
+                        color: selected
+                            ? AppColors.text
+                            : Colors.transparent,
+                        width: 2,
+                      ),
+                    ),
+                    child: Text(
+                      palette.name,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.text,
+                      ),
                     ),
                   ),
-                ),
-              ),
+                );
+              }),
           ],
         ),
         actions: [
@@ -3940,15 +3981,6 @@ class _VenueEditCardState extends State<_VenueEditCard> {
       ),
     );
     if (picked != null) widget.s._updateVenueColor(widget.index, picked);
-  }
-
-  static Color _hexToColor(String hex) {
-    final clean = hex.replaceAll('#', '');
-    try {
-      return Color(int.parse('FF$clean', radix: 16));
-    } catch (_) {
-      return AppColors.blue;
-    }
   }
 
   @override
@@ -3966,11 +3998,24 @@ class _VenueEditCardState extends State<_VenueEditCard> {
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          Text('경기장 ${widget.index + 1}',
-              style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.text2)),
+          // '경기장 N' 라벨 — 대회날짜 venue 칩과 동일 디자인(palette.chip + 검정).
+          Builder(builder: (_) {
+            final palette =
+                AppColors.venuePaletteForVenue(v, widget.s._venues);
+            return Container(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: palette.chip,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text('경기장 ${widget.index + 1}',
+                  style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.text)),
+            );
+          }),
           if (disabled) ...[
             const SizedBox(width: 8),
             Container(
@@ -4575,13 +4620,8 @@ class _CourtSummary extends StatelessWidget {
         title: '코트요약',
         child: Column(children: [
           ...s._venues.map((v) {
-            Color col;
-            final hex = v.colorHex.replaceAll('#', '');
-            try {
-              col = Color(int.parse('FF$hex', radix: 16));
-            } catch (_) {
-              col = AppColors.blue;
-            }
+            // 통합 헬퍼 — 앱 전체 동일 정책.
+            final palette = AppColors.venuePaletteForVenue(v, s._venues);
             return Padding(
               padding: const EdgeInsets.only(bottom: 4),
               child: Row(children: [
@@ -4589,7 +4629,8 @@ class _CourtSummary extends StatelessWidget {
                     width: 10,
                     height: 10,
                     decoration: BoxDecoration(
-                        color: col, borderRadius: BorderRadius.circular(3))),
+                        color: palette.chip,
+                        borderRadius: BorderRadius.circular(3))),
                 const SizedBox(width: 8),
                 Expanded(
                     child: Text(v.name,
@@ -4956,15 +4997,6 @@ class _ScheduleTabState extends State<_ScheduleTab> {
     return allRows;
   }
 
-  Color _hexToColor(String hex) {
-    final clean = hex.replaceAll('#', '');
-    try {
-      return Color(int.parse('FF$clean', radix: 16));
-    } catch (_) {
-      return AppColors.primaryMid;
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final venues = _activeVenues;
@@ -5062,10 +5094,12 @@ class _ScheduleTabState extends State<_ScheduleTab> {
             child: Row(
               children: venues.map((v) {
                 final on = v.id == _venueId;
-                final color = _hexToColor(v.colorHex);
-                final name = v.name.isEmpty
-                    ? '경기장 ${widget.s._venues.indexOf(v) + 1}'
-                    : v.name;
+                // 통합 헬퍼 — 앱 전체 동일 정책. on/off 모두 같은 palette 톤,
+                // 흰 배경 + 회색 글자(off) 또는 palette.chip + 검정(on).
+                final palette =
+                    AppColors.venuePaletteForVenue(v, widget.s._venues);
+                final idx = widget.s._venues.indexOf(v);
+                final name = v.name.isEmpty ? '경기장 ${idx + 1}' : v.name;
                 return Padding(
                   padding: const EdgeInsets.only(right: 6),
                   child: GestureDetector(
@@ -5078,16 +5112,18 @@ class _ScheduleTabState extends State<_ScheduleTab> {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 12, vertical: 5),
                       decoration: BoxDecoration(
-                        color: on ? color : AppColors.white,
+                        color: on ? palette.chip : AppColors.white,
                         borderRadius: BorderRadius.circular(999),
-                        border: Border.all(color: color, width: 1.4),
+                        border: Border.all(
+                            color: on ? palette.chip : AppColors.gray3,
+                            width: 1.4),
                       ),
                       child: Text(
                         name,
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w700,
-                          color: on ? Colors.white : color,
+                          color: on ? AppColors.text : AppColors.muted,
                           letterSpacing: -0.2,
                         ),
                       ),
@@ -7188,6 +7224,197 @@ Future<void> _onParticipantAdd(
   });
   StorageService.saveBracketEntryEventCounts(
       s._tournament.id, s._entryEventCounts);
+}
+
+/// DEV: 가상 1200명을 현재 대회에 즉시 시드 — 업로드 UI / 엑셀 파싱 모두 우회.
+/// tool/generate_fake_entries.dart 와 동일 분포: 남복/여복/혼복 각 200팀,
+/// 연령 20·30·40·50·60대 (40·50대 ~67%), 급수 자강~D조 (종형).
+/// 누르면 즉시 SampleData.players 에 추가 + _selected 갱신 + 저장.
+Future<void> _seedFake1200(
+    BuildContext context, _BracketScreenState s) async {
+  final messenger = ScaffoldMessenger.of(context);
+
+  // 중복 시드 차단 — 이 함수가 만든 id 패턴(`player_<ms>_<seq>`) 이 이미 1200명 이상이면
+  // 한 번 더 누른 것으로 간주하고 추가 없이 안내만. (남복/여복/혼복 +400 누적 방지)
+  final seededRe = RegExp(r'^player_\d{10,}_\d+$');
+  final alreadySeeded =
+      SampleData.players.where((p) => seededRe.hasMatch(p.id)).length;
+  if (alreadySeeded >= 1200) {
+    messenger.showSnackBar(SnackBar(
+      duration: const Duration(seconds: 2),
+      content: Text('이미 가상 명단이 시드되어 있습니다 ($alreadySeeded명). 중복 추가를 건너뜁니다.'),
+    ));
+    return;
+  }
+
+  messenger.showSnackBar(const SnackBar(
+    duration: Duration(seconds: 1),
+    content: Text('가상 1200명 생성 중...'),
+  ));
+
+  final rng = math.Random(20260521);
+  int phoneSeq = 0;
+  String nextPhone() {
+    phoneSeq++;
+    final mid = 1000 + rng.nextInt(9000);
+    final end = (1000 + (phoneSeq * 37 + rng.nextInt(9000))) % 10000;
+    return '010-${mid.toString().padLeft(4, '0')}-${end.toString().padLeft(4, '0')}';
+  }
+
+  const events = ['남복', '여복', '혼복'];
+  const ageTeamsPerEvent = <int, int>{20: 10, 30: 25, 40: 70, 50: 65, 60: 30};
+  const gradeWeights = <String, int>{
+    '자강조': 8, 'S조': 14, 'A조': 22, 'B조': 22, 'C조': 22, 'D조': 12,
+  };
+  final surnames =
+      '김 이 박 최 정 강 조 윤 장 임 한 오 서 신 권 황 안 송 류 전 홍 양 손 배 백 허 유 남 심 노 하 곽 성 차 주 우 구 나 문 라 민'
+          .split(' ');
+  final maleNamesByDecade = <int, List<String>>{
+    20: '민준 서준 도윤 예준 시우 하준 주원 지호 지후 준우 건우 우진 선우 도현 현우 지환 시현 정우 승현 윤호'.split(' '),
+    30: '민수 진욱 동현 성민 재현 정훈 진영 정민 시환 우영 정현 성현 종민 한결 영재 재훈 승호 형준 재원 지훈'.split(' '),
+    40: '동건 정훈 우진 호철 호진 성수 성환 성진 영준 영석 형준 형석 진호 재훈 동훈 진영 상우 인호 정수 명환'.split(' '),
+    50: '종호 진우 성호 정민 정훈 영진 동훈 형석 형철 정수 인호 재훈 명환 상철 동현 진수 광호 정호 명수 성식'.split(' '),
+    60: '영수 철수 영호 영철 종철 진수 종수 명수 종현 영기 영민 영근 정호 충식 광식 종길 영길 종근 영진 정근'.split(' '),
+  };
+  final femaleNamesByDecade = <int, List<String>>{
+    20: '서윤 지우 서연 하은 하윤 민서 지유 윤서 채원 수아 다은 예린 시은 예원 유진 소율 가은 다인 채은 윤지'.split(' '),
+    30: '지혜 수민 수영 미영 지영 미진 진희 진경 다영 보영 보경 다은 가영 영주 수정 미경 지수 은지 혜진 보람'.split(' '),
+    40: '은경 은영 은주 정현 미정 미숙 영주 수진 윤정 윤희 윤주 효정 수경 진희 수정 정민 혜영 명진 정희 영실'.split(' '),
+    50: '미경 영미 정미 미정 경순 미숙 정숙 영선 정애 영애 미영 미향 경애 영순 정순 정선 옥희 경숙 영자 미자'.split(' '),
+    60: '영자 정숙 미숙 옥자 명자 영숙 경자 정자 점순 영희 명순 미경 정희 경희 숙자 옥분 순자 옥순 영순 금자'.split(' '),
+  };
+  final clubs = <String>[
+    '강남클럽', '송파배드민턴', '수원펀민턴', '용인스매시', '분당셔틀', '판교셔틀콕',
+    '잠실배드민턴', '동탄클럽', '광교셔틀', '평촌클럽', '의왕스매시', '안양배드민턴',
+    '인천연수클럽', '부평셔틀', '연수배드민턴', '청라스매시', '송도클럽',
+    '대전둔산클럽', '유성배드민턴', '세종스매시', '천안펀민턴',
+    '대구수성클럽', '달서배드민턴', '동구셔틀', '북구스매시',
+    '부산해운대클럽', '센텀배드민턴', '동래셔틀', '광안스매시',
+    '광주서구클럽', '북구배드민턴', '남구셔틀',
+    '울산남구클럽', '울산북구스매시', '울산동구배드민턴',
+    '제주서귀포클럽', '제주시클럽',
+    '춘천호수클럽', '원주펀민턴', '강릉바다클럽',
+    '청주배드민턴', '충주셔틀', '전주한옥클럽', '여수바다스매시',
+    '포항제철클럽', '구미금오클럽', '경주왕릉클럽',
+    '과천클럽', '안산샛별클럽', '성남모란클럽',
+  ];
+
+  final usedNames = <String, Set<String>>{'남': <String>{}, '여': <String>{}};
+  String pickName(String gender, int decade) {
+    final pool = gender == '남'
+        ? maleNamesByDecade[decade]!
+        : femaleNamesByDecade[decade]!;
+    final used = usedNames[gender]!;
+    for (var t = 0; t < 200; t++) {
+      final n =
+          '${surnames[rng.nextInt(surnames.length)]}${pool[rng.nextInt(pool.length)]}';
+      if (!used.contains(n)) {
+        used.add(n);
+        return n;
+      }
+    }
+    final base =
+        '${surnames[rng.nextInt(surnames.length)]}${pool[rng.nextInt(pool.length)]}';
+    var n = base;
+    var i = 2;
+    while (used.contains(n)) {
+      n = '$base$i';
+      i++;
+    }
+    used.add(n);
+    return n;
+  }
+
+  String pickGrade() {
+    final total = gradeWeights.values.fold(0, (a, b) => a + b);
+    final r = rng.nextInt(total);
+    var acc = 0;
+    for (final e in gradeWeights.entries) {
+      acc += e.value;
+      if (r < acc) return e.key;
+    }
+    return 'C조';
+  }
+
+  int pickAge(int decade) => decade + rng.nextInt(10);
+  String pickClub() => clubs[rng.nextInt(clubs.length)];
+
+  final newPlayers = <Player>[];
+  final tsBase = DateTime.now().millisecondsSinceEpoch;
+  int seq = SampleData.players.length;
+
+  for (final event in events) {
+    final ageSeq = <int>[];
+    ageTeamsPerEvent.forEach((dec, n) {
+      for (var i = 0; i < n; i++) ageSeq.add(dec);
+    });
+    ageSeq.shuffle(rng);
+
+    for (final decade in ageSeq) {
+      final grade = pickGrade();
+      final clubA = pickClub();
+      final sameClub = rng.nextInt(100) < 90;
+      final clubB = sameClub ? clubA : pickClub();
+      String gA, gB;
+      switch (event) {
+        case '남복':
+          gA = '남'; gB = '남';
+          break;
+        case '여복':
+          gA = '여'; gB = '여';
+          break;
+        default:
+          gA = '남'; gB = '여';
+      }
+      for (final (gender, club) in [(gA, clubA), (gB, clubB)]) {
+        seq++;
+        final age = pickAge(decade);
+        final year = 2026 - age;
+        final yy = (year % 100).toString().padLeft(2, '0');
+        final m = (1 + rng.nextInt(12)).toString().padLeft(2, '0');
+        final d = (1 + rng.nextInt(28)).toString().padLeft(2, '0');
+        newPlayers.add(Player(
+          id: 'player_${tsBase}_$seq',
+          name: pickName(gender, decade),
+          gender: gender,
+          grade: grade,
+          clubName: club,
+          phone: nextPhone(),
+          birthDate: '$yy$m$d',
+          age: age,
+          regNumber: '2026-${seq.toString().padLeft(4, '0')}',
+        ));
+      }
+    }
+  }
+
+  // 로컬 전용 — Firestore upsert / addToTournament 절대 호출 X.
+  // 1200건 비동기 Firestore 쓰기가 SDK offline queue 에 쌓이면 UI freeze.
+  // SP 캐시만 저장 → 앱 재시작 후 SampleData.loadFromStorage 가 그대로 복원.
+  SampleData.players.addAll(newPlayers);
+  await StorageService.savePlayers(
+      SampleData.players.where((p) => p.id.contains('_')).toList());
+  s.rebuild(() {
+    s._selected.addAll(newPlayers.map((p) => p.id));
+    s._entryEventCounts = <String, int>{...s._entryEventCounts};
+    s._entryEventCounts['남복'] = (s._entryEventCounts['남복'] ?? 0) + 400;
+    s._entryEventCounts['여복'] = (s._entryEventCounts['여복'] ?? 0) + 400;
+    s._entryEventCounts['혼복'] = (s._entryEventCounts['혼복'] ?? 0) + 400;
+  });
+  s._saveSelectedDebounced();
+  StorageService.saveBracketEntryEventCounts(
+      s._tournament.id, s._entryEventCounts);
+
+  // 누락된 급수 칩 자동 추가 — 새 데이터에 있는 등급 중 현재 칩에 없는 것.
+  final currentGrades = s._tournament.gradeGroups.toSet();
+  for (final g in const ['자강조', 'S조']) {
+    if (!currentGrades.contains(g)) s._addGradeGroup(g);
+  }
+
+  messenger.showSnackBar(SnackBar(
+    duration: const Duration(seconds: 3),
+    content: Text('가상 1200명 시드 완료 — 연령/급수 칩 켜면 표시됩니다 (총 ${SampleData.players.length}명)'),
+  ));
 }
 
 class _PillBtn extends StatelessWidget {

@@ -120,15 +120,6 @@ class _BracketGeneratorTabState extends State<BracketGeneratorTab> {
 
   String _keyOf(Division d) => '${d.event}|${d.ageGroup}|${d.grade}';
 
-  Color _hexToColor(String hex) {
-    final clean = hex.replaceAll('#', '');
-    try {
-      return Color(int.parse('FF$clean', radix: 16));
-    } catch (_) {
-      return const Color(0xFF1E3A8A);
-    }
-  }
-
   /// 현재 선택된 종목 셋을 표시 순서대로 정렬해 반환 (혼복→남복→여복).
   List<String> get _orderedSelectedEvents =>
       _events.where(_selectedEvents.contains).toList();
@@ -368,31 +359,36 @@ class _BracketGeneratorTabState extends State<BracketGeneratorTab> {
             ),
           ]),
           const SizedBox(height: 6),
-          // 경기장 합산 코트 수 — read-only. 설정 탭의 경기장 코트 수에서 자동 합산.
+          // 경기장 합산 코트 수 — 대회날짜 venue 칩과 동일 디자인(palette.chip + 검정).
           Row(children: [
             const SizedBox(width: 60, child: Text('코트 수')),
             Expanded(
               child: Wrap(
-                spacing: 4,
+                spacing: 6,
                 runSpacing: 4,
                 children: [
                   for (final v in widget.activeVenues)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 7, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: _hexToColor(v.colorHex),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        '${v.name.isEmpty ? '미지정' : v.name} ${v.courts}코트',
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
+                    Builder(builder: (_) {
+                      // 통합 헬퍼 — 앱 전체 동일 정책.
+                      final palette = AppColors.venuePaletteForVenue(
+                          v, widget.activeVenues);
+                      return Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: palette.chip,
+                          borderRadius: BorderRadius.circular(999),
                         ),
-                      ),
-                    ),
+                        child: Text(
+                          '${v.name.isEmpty ? '미지정' : v.name} ${v.courts}코트',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.text,
+                          ),
+                        ),
+                      );
+                    }),
                 ],
               ),
             ),
@@ -413,17 +409,20 @@ class _BracketGeneratorTabState extends State<BracketGeneratorTab> {
                 width: 14,
                 height: 14,
                 child: CircularProgressIndicator(
-                    strokeWidth: 2, color: Colors.white),
+                    strokeWidth: 2, color: AppColors.text),
               )
-            : const Icon(Icons.picture_as_pdf, size: 18, color: Colors.white),
+            : const Icon(Icons.picture_as_pdf,
+                size: 18, color: AppColors.text),
         label: const Text('PDF',
             style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w700,
-                color: Colors.white)),
+                color: AppColors.text)),
         style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFFB91C1C),
-          disabledBackgroundColor: const Color(0xFFCBD5E1),
+          backgroundColor: AppColors.gray2,
+          foregroundColor: AppColors.text,
+          disabledBackgroundColor: const Color(0xFFE5E8ED),
+          elevation: 0,
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
           minimumSize: const Size(0, 38),
           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -843,98 +842,108 @@ class _DivisionCardState extends State<_DivisionCard> {
     final fmt = d.format;
     final teamCount = d.teams.length;
     final venue = widget.assignedVenue;
-    final venueColor = venue != null
-        ? _hexToColor(venue.colorHex)
-        : const Color(0xFF6B7280);
+    // 13.jpg 코트 팔레트 — venue 가 있으면 그 색상에서 5변형 derive, 없으면 중성 톤.
+    final palette =
+        venue != null
+            ? AppColors.venuePaletteForVenue(venue, widget.venues)
+            : null;
 
     return Container(
       decoration: BoxDecoration(
+        // 카드 본체 배경은 흰색 통일 — 좌측 컬러바와 보더만 venue 색.
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE5E7EB)),
+        border: Border.all(color: palette?.cardBorder ?? AppColors.divider),
       ),
       clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: Stack(
         children: [
-          // 헤더 (탭하면 펼침)
-          InkWell(
-            onTap: widget.onToggle,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 2, 6, 2),
-              child: Row(children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Wrap(
-                        spacing: 6,
-                        runSpacing: 4,
-                        children: [
-                          _badge(d.event, AppColors.primaryMid),
-                          _badge('${d.ageGroup} / ${d.grade}',
-                              const Color(0xFF6B7280)),
-                          // 펼쳐있지 않을 때만 팀 수 배지 표시 (펼쳐있을 때는 본문 큰 텍스트와 중복).
-                          if (!widget.expanded)
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 9, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFFEF3C7),
-                                borderRadius: BorderRadius.circular(5),
-                              ),
-                              child: Text('$teamCount팀',
-                                  style: const TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w800,
-                                      color: Color(0xFF92400E))),
+          // 좌측 컬러바 — venue 가 있을 때만. Stack 으로 자식 height 에 stretch.
+          if (palette != null)
+            Positioned(
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: 6,
+              child: ColoredBox(color: palette.primary),
+            ),
+          Padding(
+            padding: EdgeInsets.only(left: palette != null ? 6 : 0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // 헤더 (탭하면 펼침) — 14.jpg 디자인: 박스 없는 텍스트 + venue 칩만 박스.
+                InkWell(
+                  onTap: widget.onToggle,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 4, 12, 4),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Text(
+                          d.event,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.muted,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Text(
+                          '${d.ageGroup} / ${d.grade}',
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.text,
+                            letterSpacing: -0.2,
+                          ),
+                        ),
+                        const Spacer(),
+                        Text(
+                          '$teamCount팀',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.muted,
+                          ),
+                        ),
+                        if (venue != null && palette != null) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 9, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: palette.chip,
+                              borderRadius: BorderRadius.circular(6),
                             ),
-                          if (venue != null)
-                            _badge(widget.displayNameFor(venue), venueColor),
+                            child: Text(
+                              widget.displayNameFor(venue),
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: palette.text,
+                              ),
+                            ),
+                          ),
                         ],
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
-                Icon(
-                  widget.expanded ? Icons.expand_less : Icons.expand_more,
-                  size: 18,
-                  color: const Color(0xFF9CA3AF),
-                ),
-              ]),
+                // 본문 (펼친 경우)
+                if (widget.expanded) ...[
+                  Divider(
+                      height: 1,
+                      color: palette?.cardBorder ?? AppColors.divider),
+                  _buildBody(d, fmt),
+                ],
+              ],
             ),
           ),
-          // 본문 (펼친 경우)
-          if (widget.expanded) ...[
-            const Divider(height: 1, color: Color(0xFFE5E7EB)),
-            _buildBody(d, fmt),
-          ],
         ],
       ),
     );
   }
-
-  Color _hexToColor(String hex) {
-    final clean = hex.replaceAll('#', '');
-    try {
-      return Color(int.parse('FF$clean', radix: 16));
-    } catch (_) {
-      return const Color(0xFF1E3A8A);
-    }
-  }
-
-  Widget _badge(String text, Color bg) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(5),
-        ),
-        child: Text(text,
-            style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: Colors.white)),
-      );
 
   Widget _buildBody(Division d, BracketFormat fmt) {
     if (_activeGroup >= fmt.groups.length) _activeGroup = 0;
@@ -946,8 +955,11 @@ class _DivisionCardState extends State<_DivisionCard> {
     final teamData = _teamsForGroup(d.teams, fmt, _activeGroup);
 
     final venue = widget.assignedVenue;
-    final venueColor =
-        venue != null ? _hexToColor(venue.colorHex) : const Color(0xFF1E3A8A);
+    final palette =
+        venue != null
+            ? AppColors.venuePaletteForVenue(venue, widget.venues)
+            : null;
+    final venueColor = palette?.primary ?? const Color(0xFF1E3A8A);
 
     final finalsRounds = _finalsRoundNames(fmt.finals);
     final hasFinals = fmt.finals != null;
@@ -1000,27 +1012,25 @@ class _DivisionCardState extends State<_DivisionCard> {
                     fontWeight: FontWeight.w700,
                     color: Color(0xFF1E3A8A)),
               ),
-              if (venue != null)
+              if (venue != null && palette != null)
                 Container(
                   padding: const EdgeInsets.symmetric(
                       horizontal: 8, vertical: 2),
                   decoration: BoxDecoration(
-                    color: venueColor.withValues(alpha: 0.12),
+                    color: palette.chip,
                     borderRadius: BorderRadius.circular(12),
-                    border:
-                        Border.all(color: venueColor, width: 1.2),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(Icons.place,
-                          size: 12, color: venueColor),
+                          size: 12, color: palette.text),
                       const SizedBox(width: 2),
                       Text(widget.displayNameFor(venue),
                           style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w700,
-                              color: venueColor)),
+                              color: palette.text)),
                     ],
                   ),
                 ),

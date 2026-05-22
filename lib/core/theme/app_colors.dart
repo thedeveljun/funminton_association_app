@@ -1,10 +1,15 @@
 import 'package:flutter/material.dart';
+import '../../models/venue.dart';
 
 /// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ///  배드민턴 협회 디자인 시스템
 ///  주조색: 딥 네이비(#0F2557) — 신뢰·권위
 ///  포인트: 로열 블루(#1E4FC2) + 미드나잇(#162040)
 ///  배경:   라이트 그레이(#F4F6FA)
+///
+///  코트 팔레트(13.jpg): 시민회관(민트) / 관문체육관(앰버) /
+///  청소년수련관(스카이) / 과천중앙고(바이올렛). 각 5변형
+///  (강조 칩 / 카드 배경 / 카드 보더 / 컬러바·도트 / 글자).
 /// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 class AppColors {
   AppColors._();
@@ -61,6 +66,116 @@ class AppColors {
   // ── 구분선 ────────────────────────────────
   static const Color divider = Color(0xFFE4E8F0);
   static const Color white = Color(0xFFFFFFFF);
+
+  // ── 12.jpg 종목 칩 ────────────────────────
+  // 혼복=옅은 앰버 / 남복=옅은 분홍 / 여복=옅은 민트.
+  // (bg, text) 한 쌍씩.
+  static const Color eventMixedBg = Color(0xFFFFEFC2);
+  static const Color eventMixedText = Color(0xFF8D6515);
+  static const Color eventMaleBg = Color(0xFFFFD9DE);
+  static const Color eventMaleText = Color(0xFFB03B5A);
+  static const Color eventFemaleBg = Color(0xFFC9F2DC);
+  static const Color eventFemaleText = Color(0xFF134228);
+
+  static (Color bg, Color text) eventChipColors(String event) {
+    switch (event) {
+      case '혼복':
+        return (eventMixedBg, eventMixedText);
+      case '남복':
+        return (eventMaleBg, eventMaleText);
+      case '여복':
+        return (eventFemaleBg, eventFemaleText);
+      default:
+        return (gray2, AppColors.text);
+    }
+  }
+
+  // ── 13.jpg 코트(경기장) 팔레트 ────────────
+  // 각 팔레트는 5변형: primary(컬러바·도트) / chip(강조 칩) /
+  // cardBg(카드 배경) / cardBorder(카드 보더) / text(글자).
+  static const VenuePalette venueMint = VenuePalette(
+    name: '민트',
+    primary: Color(0xFF2D7D5C),
+    chip: Color(0xFFC9F2DC),
+    cardBg: Color(0xFFEFFBF5),
+    cardBorder: Color(0xFFD3EAD9),
+    text: Color(0xFF134228),
+  );
+  static const VenuePalette venueAmber = VenuePalette(
+    name: '앰버',
+    primary: Color(0xFF8D6515),
+    chip: Color(0xFFF5D976),
+    cardBg: Color(0xFFFDF9EE),
+    cardBorder: Color(0xFFEAD79A),
+    text: Color(0xFF5E4408),
+  );
+  static const VenuePalette venueSky = VenuePalette(
+    name: '스카이',
+    primary: Color(0xFF225F8E),
+    chip: Color(0xFFB8DCF7),
+    cardBg: Color(0xFFEBF3FC),
+    cardBorder: Color(0xFFCDDEF1),
+    text: Color(0xFF0F3D5E),
+  );
+  static const VenuePalette venueViolet = VenuePalette(
+    name: '바이올렛',
+    primary: Color(0xFF4B289A),
+    chip: Color(0xFFCCB5ED),
+    cardBg: Color(0xFFF4EEFB),
+    cardBorder: Color(0xFFDDCEEE),
+    text: Color(0xFF2A1466),
+  );
+
+  static const List<VenuePalette> venuePalettes = [
+    venueMint, venueAmber, venueSky, venueViolet,
+  ];
+
+  /// venue 디스플레이용 통합 헬퍼 — 앱 전체에서 동일한 색 정책을 보장한다.
+  /// 1) venue.name 이 _namePalette(시민회관/관문/청소년/과천중)와 매칭되면 그 색
+  /// 2) 아니면 venue 가 [allVenues] 안에서 차지하는 인덱스 % 4 순환 (mint→amber→
+  ///    sky→violet). venue.colorHex 데이터가 중복이어도 인덱스 기준이라 4가지가
+  ///    겹치지 않게 보장.
+  ///
+  /// 모든 venue 칩/카드/dot 은 이 헬퍼만 호출 — 디스플레이 일관성 단일 진실 근원.
+  static VenuePalette venuePaletteForVenue(Venue v, List<Venue> allVenues) {
+    final mapped = Venue.paletteHexForName(v.name);
+    if (mapped != null) return venuePaletteFor(mapped);
+    final idx = allVenues.indexWhere((x) => x.id == v.id);
+    final safe = idx < 0 ? 0 : idx;
+    return venuePalettes[safe % venuePalettes.length];
+  }
+
+  /// hex 가 4팔레트의 primary 와 정확히 매칭되면 그 팔레트를, 아니면
+  /// RGB 거리(squared) 최소 팔레트를 반환. 기존 venue 색(옛 hex)도 자동으로
+  /// 가장 가까운 신팔레트로 매핑되어 일관된 5변형을 제공.
+  static VenuePalette venuePaletteFor(String hex) {
+    final clean = hex.replaceAll('#', '').toLowerCase();
+    if (clean.length != 6) return venueMint;
+    int r, g, b;
+    try {
+      r = int.parse(clean.substring(0, 2), radix: 16);
+      g = int.parse(clean.substring(2, 4), radix: 16);
+      b = int.parse(clean.substring(4, 6), radix: 16);
+    } catch (_) {
+      return venueMint;
+    }
+    VenuePalette best = venueMint;
+    int bestDist = 1 << 30;
+    for (final p in venuePalettes) {
+      final pr = (p.primary.toARGB32() >> 16) & 0xFF;
+      final pg = (p.primary.toARGB32() >> 8) & 0xFF;
+      final pb = p.primary.toARGB32() & 0xFF;
+      final dr = pr - r;
+      final dg = pg - g;
+      final db = pb - b;
+      final dist = dr * dr + dg * dg + db * db;
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = p;
+      }
+    }
+    return best;
+  }
 
   // ── 급수 색상 ─────────────────────────────
   // 자강조(최고) → 초심조(입문) 순서
@@ -148,4 +263,23 @@ class AppColors {
         return const Color(0xFF9BA8BB);
     }
   }
+}
+
+/// 13.jpg 코트(경기장) 색상 팔레트 — 5변형 한 묶음.
+class VenuePalette {
+  final String name;
+  final Color primary;
+  final Color chip;
+  final Color cardBg;
+  final Color cardBorder;
+  final Color text;
+
+  const VenuePalette({
+    required this.name,
+    required this.primary,
+    required this.chip,
+    required this.cardBg,
+    required this.cardBorder,
+    required this.text,
+  });
 }
