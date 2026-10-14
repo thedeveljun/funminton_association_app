@@ -16,12 +16,17 @@ import 'package:flutter/services.dart';
 import '../../core/constants/app_config.dart';
 import '../../models/club.dart';
 import '../../models/club_share.dart';
+import '../../models/donation.dart';
 import '../../models/finance_transaction.dart';
 import '../../models/player.dart';
 import '../../models/player_fee_payment.dart';
 import '../../models/tournament.dart';
+import '../../services/finance_ledger.dart';
+import '../../services/finance_log.dart';
+import '../../services/receipt/receipt_scanner.dart';
 import '../../services/sample_data.dart';
 import '../../services/storage_service.dart';
+import 'finance_log_screen.dart';
 import 'widgets/widgets.dart';
 
 class FinanceScreen extends StatefulWidget {
@@ -99,8 +104,19 @@ class _FinanceScreenState extends State<FinanceScreen>
     );
     if (ok != true) return;
 
+    for (final t in _transactions) {
+      ReceiptScanner.deletePhoto(t.imagePath);
+    }
     setState(() {
       _transactions.clear();
+      // 찬조는 남기고 장부 연결만 끊는다
+      for (var i = 0; i < SampleData.donations.length; i++) {
+        final d = SampleData.donations[i];
+        if (d.txId != null) {
+          SampleData.donations[i] =
+              Donation.fromMap({...d.toMap(), 'tx_id': null});
+        }
+      }
       // 연결된 분담금/찬조의 납부 상태(txId)도 끊어 일관성 유지
       for (var i = 0; i < SampleData.clubShares.length; i++) {
         final s = SampleData.clubShares[i];
@@ -125,6 +141,8 @@ class _FinanceScreenState extends State<FinanceScreen>
     await SampleData.saveTransactions();
     await SampleData.saveClubShares();
     await SampleData.savePlayerFeePayments();
+    await SampleData.saveDonations();
+    await FinanceLog.add('거래내역 전체 삭제', '수입/지출', '$total건');
     _snack('$total건의 거래내역을 삭제했습니다.');
   }
 
@@ -137,12 +155,27 @@ class _FinanceScreenState extends State<FinanceScreen>
         onSave: (tx) {
           setState(() => _transactions.add(tx));
           SampleData.saveTransactions();
+          logTransactionChange(null, tx);
         },
       ),
     );
   }
 
+  /// 줄을 누르면 — 반납이 끝난 짝은 되돌리기 안내, 협회비·분담금·찬조와 이어진
+  /// 줄은 원래 화면 안내, 손으로 적은 줄만 고치기 창.
   Future<void> _showEditDialog(FinanceTransaction tx) async {
+    if (FinanceLedger.isSettled(tx)) {
+      await showSettledDialog(context, tx, onUndone: () {
+        if (!mounted) return;
+        setState(() {});
+        _snack('${FinanceLedger.undoLabelOf(tx).replaceAll(' 되돌리기', '')}을 되돌렸습니다.');
+      });
+      return;
+    }
+    if (FinanceLedger.isLinkedLive(tx)) {
+      await showLinkedDialog(context, tx);
+      return;
+    }
     await showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -155,13 +188,38 @@ class _FinanceScreenState extends State<FinanceScreen>
             if (idx >= 0) _transactions[idx] = updated;
           });
           SampleData.saveTransactions();
+          logTransactionChange(tx, updated);
         },
-        onDelete: () {
-          setState(() => _transactions.removeWhere((t) => t.id == tx.id));
-          SampleData.saveTransactions();
-        },
+        onDelete: () => _deleteTransaction(tx),
       ),
     );
+  }
+
+  /// 밀어서 지우기·반납. 협회비·분담금은 반납 짝, 찬조는 찬조 목록에서도 삭제.
+  Future<void> _deleteTransaction(FinanceTransaction tx) async {
+    switch (FinanceLedger.actionOf(tx)) {
+      case LedgerAction.locked:
+        return;
+      case LedgerAction.refund:
+        await FinanceLedger.refund(tx);
+        _snack('${FinanceLedger.liveKind(tx)} 반납 처리되었습니다.');
+        break;
+      case LedgerAction.donation:
+        await FinanceLedger.deleteDonationRow(tx);
+        _snack('찬조를 삭제했습니다.');
+        break;
+      case LedgerAction.delete:
+        await ReceiptScanner.deletePhoto(tx.imagePath);
+        await FinanceLedger.deletePlain(tx);
+        _snack('삭제되었습니다.');
+        break;
+    }
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _openLog() async {
+    await Navigator.push(context,
+        MaterialPageRoute(builder: (_) => const FinanceLogScreen()));
   }
 
   Future<void> _showFeeDialog(Club club) async {
@@ -179,8 +237,7 @@ class _FinanceScreenState extends State<FinanceScreen>
           final ts = DateTime.now().microsecondsSinceEpoch;
           final paymentId = 'pfp_$ts';
           final txId = 'tx_$paymentId';
-          final today =
-              '${DateTime.now().year.toString().padLeft(4, '0')}-${DateTime.now().month.toString().padLeft(2, '0')}-${DateTime.now().day.toString().padLeft(2, '0')}';
+          final today = todayStr();
           final memo = '${DateTime.now().year}년 협회비';
 
           final payment = PlayerFeePayment(
@@ -202,10 +259,11 @@ class _FinanceScreenState extends State<FinanceScreen>
             amount: AppConfig.playerFeeUnit,
             isIncome: true,
             category: '협회비',
-            date: today,
+            date: nowStr(),
             clubId: player.clubId,
             clubName: player.clubName,
             memo: memo,
+            link: '협회비_$txId',
           );
 
           SampleData.playerFeePayments.add(payment);
@@ -213,23 +271,27 @@ class _FinanceScreenState extends State<FinanceScreen>
           setState(() {});
           SampleData.savePlayerFeePayments();
           SampleData.saveTransactions();
+          FinanceLog.add('협회비 납부', tx.title, fmtAmt(tx.amount));
         },
-        onCancel: (player) {
-          // 선수 납부 취소: 해당 선수의 올해 납부 + 연결 거래 삭제
+        onCancel: (player, choice) async {
+          // 선수 납부 취소: 돌려줬으면 반납 짝, 잘못 눌렀으면 받은 기록을 걷어낸다.
           final yr = DateTime.now().year;
           final removed = SampleData.playerFeePayments
               .where((p) => p.playerId == player.id && p.year == yr)
               .toList();
           for (final p in removed) {
-            if (p.txId != null) {
-              _transactions.removeWhere((t) => t.id == p.txId);
+            final tx = _transactions.where((t) => t.id == p.txId).toList();
+            if (choice == UnpayChoice.refunded && tx.isNotEmpty) {
+              await FinanceLedger.refund(tx.first);
+            } else {
+              await FinanceLedger.dropLinkedTx(p.txId, '협회비');
             }
           }
           SampleData.playerFeePayments
               .removeWhere((p) => p.playerId == player.id && p.year == yr);
-          setState(() {});
-          SampleData.savePlayerFeePayments();
-          SampleData.saveTransactions();
+          if (mounted) setState(() {});
+          await SampleData.savePlayerFeePayments();
+          await SampleData.saveTransactions();
         },
       ),
     );
@@ -259,6 +321,44 @@ class _FinanceScreenState extends State<FinanceScreen>
 
     if (result == null) return;
 
+    // 낸 분담금을 미납으로 바꾸거나 지울 때 — 돈을 돌려줬는지 먼저 묻는다.
+    UnpayChoice? unpay;
+    if (result.action != ClubShareFormAction.add) {
+      final old = SampleData.clubShares
+          .where((s) => s.id == result.share.id)
+          .toList();
+      final wasPaid = old.isNotEmpty && old.first.paid && old.first.txId != null;
+      if (wasPaid && result.action == ClubShareFormAction.delete) {
+        unpay = await askPaidRemoval(context,
+            title: '분담금 삭제',
+            who: '${old.first.clubName} 분담금',
+            amount: old.first.amount,
+            action: '삭제');
+        if (unpay == null) return;
+      } else if (wasPaid && !result.share.paid) {
+        unpay = await askUnpayReason(
+            context, '${old.first.clubName} 분담금', old.first.amount);
+        if (unpay == null) return;
+      }
+      if (unpay != null) {
+        final txId = old.first.txId!;
+        final tx = _transactions.where((t) => t.id == txId).toList();
+        if (unpay == UnpayChoice.refunded && tx.isNotEmpty) {
+          await FinanceLedger.refund(tx.first); // 분담금도 미납으로 돌아감
+        } else if (unpay == UnpayChoice.keep) {
+          await FinanceLedger.keepAsIncome(txId, '분담금 삭제 후 남김');
+        } else {
+          await FinanceLedger.dropLinkedTx(txId, '분담금');
+        }
+        final i =
+            SampleData.clubShares.indexWhere((s) => s.id == result.share.id);
+        if (i >= 0) {
+          SampleData.clubShares[i] = SampleData.clubShares[i].markUnpaid();
+        }
+      }
+    }
+    if (!mounted) return;
+
     setState(() {
       switch (result.action) {
         case ClubShareFormAction.add:
@@ -270,6 +370,8 @@ class _FinanceScreenState extends State<FinanceScreen>
             final txId = result.share.txId ??
                 'tx_cs_${DateTime.now().microsecondsSinceEpoch}';
             _transactions.add(_buildShareTx(result.share, txId));
+            FinanceLog.add('분담금 납부', '${result.share.clubName} 분담금',
+                fmtAmt(result.share.amount));
             // 거래 ID를 분담금에 연결 (replace)
             final idx = SampleData.clubShares
                 .indexWhere((s) => s.id == result.share.id);
@@ -288,6 +390,9 @@ class _FinanceScreenState extends State<FinanceScreen>
           final old = SampleData.clubShares[idx];
 
           // 기존 거래가 있으면 일단 제거
+          final oldTx = old.txId == null
+              ? const <FinanceTransaction>[]
+              : _transactions.where((t) => t.id == old.txId).toList();
           if (old.txId != null) {
             _transactions.removeWhere((t) => t.id == old.txId);
           }
@@ -297,7 +402,20 @@ class _FinanceScreenState extends State<FinanceScreen>
           if (updated.paid) {
             final newTxId =
                 old.txId ?? 'tx_cs_${DateTime.now().microsecondsSinceEpoch}';
-            _transactions.add(_buildShareTx(updated, newTxId));
+            final rebuilt = _buildShareTx(updated, newTxId);
+            // 이미 있던 줄이면 처음 도장(날짜·시각)과 영수증을 지킨다.
+            _transactions.add(oldTx.isEmpty
+                ? rebuilt
+                : rebuilt.copyWith(
+                    date: dayOf(oldTx.first.date) == dayOf(rebuilt.date)
+                        ? oldTx.first.date
+                        : null));
+            if (oldTx.isNotEmpty && oldTx.first.amount != updated.amount) {
+              FinanceLog.add('분담금 변경', rebuilt.title,
+                  '${fmtAmt(oldTx.first.amount)} → ${fmtAmt(updated.amount)}');
+            } else if (oldTx.isEmpty) {
+              FinanceLog.add('분담금 납부', rebuilt.title, fmtAmt(updated.amount));
+            }
             updated = updated.copyWith(txId: newTxId);
           } else {
             // 미납으로 바뀐 경우 txId 끊기 — copyWith는 null을 보존하지 못하므로 직접 생성
@@ -319,10 +437,7 @@ class _FinanceScreenState extends State<FinanceScreen>
           break;
 
         case ClubShareFormAction.delete:
-          // 연결된 거래도 함께 제거
-          if (result.share.txId != null) {
-            _transactions.removeWhere((t) => t.id == result.share.txId);
-          }
+          // 낸 분담금이었으면 위에서 반납/남김/걷어냄을 이미 처리했다.
           SampleData.clubShares.removeWhere((s) => s.id == result.share.id);
           _snack('${result.share.clubName} 분담금 삭제됨');
           break;
@@ -340,12 +455,13 @@ class _FinanceScreenState extends State<FinanceScreen>
       amount: s.amount,
       isIncome: true,
       category: '분담금',
-      date: s.paidDate ?? todayStr(),
+      date: FinanceLedger.dayStamp(s.paidDate ?? todayStr()),
       clubId: s.clubId,
       clubName: s.clubName,
       tournamentId: s.tournamentId,
       tournamentName: s.tournamentName,
       memo: s.memo,
+      link: '분담금_$txId',
     );
   }
 
@@ -438,9 +554,11 @@ class _FinanceScreenState extends State<FinanceScreen>
             SampleData.clubShares
                 .removeWhere((s) => s.tournamentId == result.tournament.id);
             // 거래내역에서 해당 거래도 삭제
-            _transactions.removeWhere((t) => shareTxIds.contains(t.id));
-            SampleData.transactions
-                .removeWhere((t) => shareTxIds.contains(t.id));
+            // 반납 짝(받은 기록·돌려준 기록)도 같은 키로 함께 지운다.
+            _transactions.removeWhere((t) =>
+                shareTxIds.contains(t.id) ||
+                (t.tournamentId == result.tournament.id &&
+                    FinanceLedger.settledKind(t) == '분담금'));
           }
 
           // 찬조 토글 OFF → 찬조 + 연결 거래 모두 삭제
@@ -453,8 +571,6 @@ class _FinanceScreenState extends State<FinanceScreen>
             SampleData.donations
                 .removeWhere((d) => d.tournamentId == result.tournament.id);
             _transactions.removeWhere((t) => donationTxIds.contains(t.id));
-            SampleData.transactions
-                .removeWhere((t) => donationTxIds.contains(t.id));
           }
 
           // 연결된 분담금/거래의 대회명도 갱신 (대회명이 바뀐 경우)
@@ -482,19 +598,8 @@ class _FinanceScreenState extends State<FinanceScreen>
             for (var i = 0; i < _transactions.length; i++) {
               if (_transactions[i].tournamentId == result.tournament.id) {
                 final tx = _transactions[i];
-                _transactions[i] = FinanceTransaction(
-                  id: tx.id,
-                  title: tx.title,
-                  amount: tx.amount,
-                  isIncome: tx.isIncome,
-                  category: tx.category,
-                  date: tx.date,
-                  clubId: tx.clubId,
-                  clubName: tx.clubName,
-                  tournamentId: tx.tournamentId,
-                  tournamentName: result.tournament.name,
-                  memo: tx.memo,
-                );
+                _transactions[i] =
+                    tx.copyWith(tournamentName: result.tournament.name);
               }
             }
           }
@@ -629,6 +734,11 @@ class _FinanceScreenState extends State<FinanceScreen>
           ),
           actions: [
             IconButton(
+              onPressed: _openLog,
+              tooltip: '재정 변경 이력',
+              icon: const Icon(Icons.history_rounded, size: 22, color: kAccent),
+            ),
+            IconButton(
               onPressed: _showFeeUnitSettings,
               tooltip: '협회비 단가 설정',
               icon: const Icon(Icons.tune_rounded, size: 22, color: kAccent),
@@ -673,6 +783,7 @@ class _FinanceScreenState extends State<FinanceScreen>
               onAddTap: _showAddDialog,
               onClearAllTap: _confirmClearAllTransactions,
               onItemTap: _showEditDialog,
+              onItemDelete: _deleteTransaction,
             ),
             SummaryTab(
               transactions: _transactions,

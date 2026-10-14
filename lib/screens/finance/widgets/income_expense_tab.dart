@@ -14,6 +14,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../models/finance_transaction.dart';
+import '../../../services/finance_ledger.dart';
 import 'finance_constants.dart';
 import 'finance_helpers.dart';
 import 'grouped_fee_row.dart';
@@ -25,11 +26,15 @@ class IncomeExpenseTab extends StatelessWidget {
   final VoidCallback onAddTap;
   final VoidCallback onClearAllTap;
   final void Function(FinanceTransaction) onItemTap;
+
+  /// 밀어서 삭제/반납을 확인했을 때.
+  final void Function(FinanceTransaction) onItemDelete;
   const IncomeExpenseTab({
     required this.transactions,
     required this.onAddTap,
     required this.onClearAllTap,
     required this.onItemTap,
+    required this.onItemDelete,
   });
 
   @override
@@ -53,12 +58,13 @@ class IncomeExpenseTab extends StatelessWidget {
     final others = <FinanceTransaction>[];
     for (final t in transactions) {
       // 협회비 카테고리이면서 수입(납부)인 거래만 그룹화 대상
-      // → 협회비 환불 등의 지출은 일반 거래로 표시
+      // → 협회비 반납 등의 지출, 반납이 끝난 받은 기록은 일반 거래로 표시
       if (t.category == '협회비' &&
           t.isIncome &&
+          FinanceLedger.isLinkedLive(t) &&
           t.clubId != null &&
           t.clubId!.isNotEmpty) {
-        final key = '${t.clubId}__${t.date}';
+        final key = '${t.clubId}__${dayOf(t.date)}';
         feesByClubDate.putIfAbsent(key, () => []).add(t);
       } else {
         others.add(t);
@@ -103,8 +109,14 @@ class IncomeExpenseTab extends StatelessWidget {
     }
     // 정렬: 1차 날짜 내림차순 → 2차 timestamp 내림차순 (ID 접두사 무관, 숫자만 비교)
     items.sort((a, b) {
-      final dateCmp = b.date.compareTo(a.date);
+      final dateCmp = dayOf(b.date).compareTo(dayOf(a.date));
       if (dateCmp != 0) return dateCmp;
+      // 같은 날이면 시각 도장(초 단위) — 영수증에서 읽은 시각 등
+      String maxStamp(DisplayItem it) => it.sourceTransactions
+          .map((t) => sortStamp(t.date))
+          .reduce((x, y) => x.compareTo(y) >= 0 ? x : y);
+      final stampCmp = maxStamp(b).compareTo(maxStamp(a));
+      if (stampCmp != 0) return stampCmp;
       // 그룹의 가장 최신 timestamp 비교 (microsecondsSinceEpoch 기반)
       final aMax = a.sourceTransactions
           .map((t) => extractTimestamp(t.id))
@@ -182,6 +194,7 @@ class IncomeExpenseTab extends StatelessWidget {
                   return TransactionRow(
                     tx: tx,
                     onTap: () => onItemTap(tx),
+                    onDelete: onItemDelete,
                   );
                 },
               ),

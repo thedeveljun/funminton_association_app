@@ -38,14 +38,8 @@ class SummaryTab extends StatelessWidget {
 
   List<FinanceTransaction> get _filtered {
     if (period == '전체') return transactions;
-    return transactions.where((t) {
-      try {
-        final d = DateTime.parse(t.date);
-        return !d.isBefore(rangeStart) && !d.isAfter(rangeEnd);
-      } catch (_) {
-        return false;
-      }
-    }).toList();
+    // 날짜(일 단위)로 비교 — 시각이 붙은 거래도 마지막 날 것까지 들어간다.
+    return inDayRange(transactions, (t) => t.date, rangeStart, rangeEnd);
   }
 
   @override
@@ -88,8 +82,13 @@ class SummaryTab extends StatelessWidget {
             borderRadius: BorderRadius.circular(16),
           ),
           child: Column(children: [
-            const Text('현재 잔액',
-                style: TextStyle(
+            Text(
+                period == '전체'
+                    ? '현재 잔액'
+                    : period == '이번달'
+                        ? '이번달 수입 − 지출'
+                        : '고른 기간 수입 − 지출',
+                style: const TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w600,
                   color: Colors.white70,

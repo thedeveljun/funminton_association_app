@@ -8,7 +8,7 @@
 //   - 선수 검색 (이름/급수/전화번호)
 //   - 미납자 체크박스 다중 선택
 //   - 전체 선택 / 일괄 납부 처리
-//   - 납부 완료 행 길게 누름 → 납부 취소
+//   - 납부 완료 행 길게 누름 → 납부 취소 (돌려줬으면 반납, 잘못 눌렀으면 기록 삭제)
 //   - 클럽 통계 박스 (납부 인원 / 납부 금액)
 //
 // 호출 예:
@@ -27,14 +27,17 @@ import '../../../core/constants/app_config.dart';
 import '../../../models/club.dart';
 import '../../../models/player.dart';
 import '../../../models/player_fee_payment.dart';
+import '../../../services/finance_ledger.dart';
 import '../../../services/sample_data.dart';
 import 'finance_constants.dart';
 import 'finance_helpers.dart';
+import 'ledger_dialogs.dart';
 
 class FeePaymentSheet extends StatefulWidget {
   final Club club;
   final void Function(Player) onPay;
-  final void Function(Player) onCancel;
+  /// 납부 취소. 까닭(돌려줬어요/잘못 눌렀어요)을 함께 넘긴다.
+  final Future<void> Function(Player, UnpayChoice) onCancel;
 
   const FeePaymentSheet({
     required this.club,
@@ -153,46 +156,14 @@ class _FeePaymentSheetState extends State<FeePaymentSheet> {
 
   /// 이미 납부된 선수 길게 눌러서 → 납부 취소
   Future<void> _onLongPressPaidPlayer(Player player) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('납부 취소',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '${player.name} (${player.gradeShort}조)',
-              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              '납부를 취소하시겠습니까?\n(연결된 수입 거래도 함께 삭제됩니다)',
-              style: TextStyle(fontSize: 13, color: kInk),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child:
-                const Text('아니오', style: TextStyle(color: Color(0xFF555555))),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('취소하기',
-                style:
-                    TextStyle(color: kExpenseFg, fontWeight: FontWeight.w700)),
-          ),
-        ],
-      ),
-    );
-    if (ok == true) {
-      widget.onCancel(player);
-      if (mounted) setState(() {});
-    }
+    final paid = SampleData.playerFeePayments
+        .where((p) => p.playerId == player.id && p.year == DateTime.now().year)
+        .fold<int>(0, (s, p) => s + p.amount);
+    final choice = await askUnpayReason(
+        context, '${player.name} (${player.gradeShort}조)', paid);
+    if (choice == null) return;
+    await widget.onCancel(player, choice);
+    if (mounted) setState(() {});
   }
 
   /// 선택된 선수들 일괄 납부 처리

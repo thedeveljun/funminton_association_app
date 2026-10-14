@@ -5,6 +5,7 @@ import 'core/constants/app_config.dart';
 import 'core/theme/app_theme.dart';
 import 'screens/auth/root_gate.dart';
 import 'services/auth_service.dart';
+import 'services/finance_ledger.dart';
 import 'services/sample_data.dart';
 import 'services/storage_service.dart';
 
@@ -18,6 +19,9 @@ void main() async {
 
   // 저장된 데이터 로드 (있으면 그걸 쓰고, 없으면 기본값 사용)
   await SampleData.loadFromStorage();
+
+  // 장부 연동 표시(협회비·분담금·찬조) 1회 이주 + 장부에 없던 현금 찬조를 수입으로.
+  await FinanceLedger.migrateOnce();
   final fixed = await SampleData.repairBrokenAges();
   debugPrint('[migration] 잘못된 나이 ${fixed}명 복구');
 

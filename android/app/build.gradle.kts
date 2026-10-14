@@ -7,7 +7,7 @@ plugins {
 
 android {
     namespace = "com.example.funminton_app"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -41,4 +41,10 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // 영수증 글자 읽기 — 한글 모델. 플러그인은 라틴 모델만 넣으므로 따로 붙인다.
+    // 모델이 앱 안에 들어가 인터넷 없이 읽는다(앱이 몇 MB 커진다).
+    implementation("com.google.mlkit:text-recognition-korean:16.0.1")
 }

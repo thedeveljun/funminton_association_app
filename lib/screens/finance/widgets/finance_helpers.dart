@@ -86,12 +86,53 @@ String todayStr() {
   return '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
 }
 
+String _p2(int n) => n.toString().padLeft(2, '0');
+
+/// 지금 시각 'YYYY-MM-DD HH:MM:SS'. 새로 적는 거래는 시각까지 찍는다.
+String nowStr() => stampOf(DateTime.now());
+
+String stampOf(DateTime d) =>
+    '${d.year.toString().padLeft(4, '0')}-${_p2(d.month)}-${_p2(d.day)} '
+    '${_p2(d.hour)}:${_p2(d.minute)}:${_p2(d.second)}';
+
+/// 도장의 날짜 부분 'YYYY-MM-DD'.
+String dayOf(String stamp) =>
+    stamp.length >= 10 ? stamp.substring(0, 10) : stamp;
+
+/// 화면용 'YYYY-MM-DD HH:MM'. 날짜만 있는 예전 자료는 날짜만.
+String fmtStamp(String stamp) =>
+    stamp.length >= 16 ? stamp.substring(0, 16) : dayOf(stamp);
+
+/// 날짜를 [day] 로 바꾸고 시각은 [keep] 의 것을 지킨다(없으면 지금 시각).
+String stampOn(DateTime day, {required String keep}) {
+  final d = '${day.year.toString().padLeft(4, '0')}-${_p2(day.month)}-${_p2(day.day)}';
+  if (keep.length >= 19) return '$d${keep.substring(10, 19)}';
+  final n = DateTime.now();
+  return '$d ${_p2(n.hour)}:${_p2(n.minute)}:${_p2(n.second)}';
+}
+
+/// 정렬용. 날짜만 있는 예전 자료는 그날 맨 앞(00:00:00)으로 둔다.
+String sortStamp(String s) => s.length >= 19 ? s : '${dayOf(s)} 00:00:00';
+
+/// 날짜(일 단위)로 [from]~[to] 안에 드는 거래만. 양 끝 포함.
+List<T> inDayRange<T>(
+    List<T> items, String Function(T) dateOf, DateTime from, DateTime to) {
+  final f = dayOf(stampOf(from));
+  final t = dayOf(stampOf(to));
+  return items.where((e) {
+    final d = dayOf(dateOf(e));
+    if (d.length != 10) return false;
+    return d.compareTo(f) >= 0 && d.compareTo(t) <= 0;
+  }).toList();
+}
+
 // ══════════════════════════════════════════════
 // 입력창 데코레이션
 // ══════════════════════════════════════════════
 
 /// 재정 화면 다이얼로그/입력창에 쓰는 통일된 InputDecoration.
-InputDecoration financeInputDeco(String hint) => InputDecoration(
+InputDecoration financeInputDeco(String hint, {bool hasError = false}) =>
+    InputDecoration(
       hintText: hint,
       hintStyle: const TextStyle(fontSize: 14, color: Color(0xFFAAAAAA)),
       filled: true,
@@ -104,13 +145,18 @@ InputDecoration financeInputDeco(String hint) => InputDecoration(
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
-        borderSide: const BorderSide(color: Color(0xFF9CA5B5), width: 1.5),
+        borderSide: BorderSide(
+            color: hasError ? kErrorRed : const Color(0xFF9CA5B5), width: 1.5),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
-        borderSide: const BorderSide(color: Color(0xFF5F81A7), width: 2),
+        borderSide: BorderSide(
+            color: hasError ? kErrorRed : const Color(0xFF5F81A7), width: 2),
       ),
     );
+
+/// 빠뜨린 칸 안내 글씨·테두리 색.
+const Color kErrorRed = Color(0xFFD03A3A);
 
 // ══════════════════════════════════════════════
 // 천단위 콤마 자동 포맷터

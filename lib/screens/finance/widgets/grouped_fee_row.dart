@@ -37,7 +37,7 @@ class DisplayItem {
   });
 
   factory DisplayItem.single(FinanceTransaction tx) => DisplayItem._(
-        date: tx.date,
+        date: fmtStamp(tx.date),
         sourceTransactions: [tx],
         isGroup: false,
       );
@@ -46,7 +46,7 @@ class DisplayItem {
     final first = txs.first;
     final total = txs.fold<int>(0, (s, t) => s + t.amount);
     return DisplayItem._(
-      date: first.date,
+      date: dayOf(first.date),
       sourceTransactions: txs,
       isGroup: true,
       groupClubName: first.clubName,
